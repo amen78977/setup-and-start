@@ -4,7 +4,7 @@
 
 Portable, small-context orchestration skill for **Claude Code, Codex, OpenCode** and other Agent Skills-compatible assistants. It routes software tasks to a maximum of three relevant guidance packs at a time, uses Caveman-style token discipline, and specifies an implementation → tests → independent review → repair workflow.
 
-> **Status: experimental v0.1.** This repository ships a usable on-demand skill router and an opt-in *local CLI runner*, not a magical guaranteed bug-free app builder, native model router, or hosted Lovable clone. A CLI, models, permissions, browser and credentials are provided by the user and their environment. External skills are **not** downloaded or executed automatically.
+> **Status: experimental v0.2.** This is a real, testable single-entry skill/router with opt-in CLI execution, phase selection, deterministic project signals, checkpoint retries, evidence-based review, user-configured model policy and optional browser QA. It is **not** a guaranteed bug-free app builder, a hosted Lovable clone, a secure sandbox, or a magic unlimited-token interface. Providers and permissions must exist on your machine.
 
 ## Quick start — no Python needed for the skill itself
 
@@ -22,9 +22,10 @@ Clone/download this repo or install the skill and use its `scripts/router.py` pa
 python skills/setup-and-start/scripts/router.py doctor
 python skills/setup-and-start/scripts/router.py route "تصميم واجهة React عربية" --stage build
 python skills/setup-and-start/scripts/router.py route "Create backend API with Postgres" --stage build
+python skills/setup-and-start/scripts/router.py plan "Build an Arabic ecommerce website" --project .
 ```
 
-The helper reads a **local, curated JSON registry** and returns up to three pack references. It never downloads remote instructions. The tool is useful even if only one coding agent is installed.
+The helper reads a **local, curated JSON registry** and returns at most three phase-relevant pack references. It inspects only known top-level project manifest names, not entire source trees or secret files. `plan` previews five phase-specific selections without invoking a model. The default skill guidance budget is 4,800 characters per invocation, not an unlimited prompt dump.
 
 ### Optional autonomous CLI workflow
 
@@ -35,11 +36,36 @@ python skills/setup-and-start/scripts/router.py run "Implement a search endpoint
 # Execute only in a trusted project with local authenticated CLIs and permission.
 python skills/setup-and-start/scripts/router.py run "Implement a search endpoint" --project . \
   --execute --check "python -m unittest discover -s tests" --attempts 2
+
+# Or explicitly opt in to project-provided test/build scripts
+python skills/setup-and-start/scripts/router.py run "Fix a search bug" --project . \
+  --execute --auto-checks --attempts 2
 ```
 
-`run` attempts implementation, user-supplied test commands and, if a *different* installed CLI is available, an advisory read-only independent review. Feedback can trigger bounded repair attempts. Without meaningful test commands **and** independent review, result is **unverified**, never falsely "complete". A reviewer prompt alone does not enforce filesystem read-only access: use a sandbox/worktree for isolation.
+`run` attempts implementation, real checks, and—if a *different* installed CLI exists—a bounded diff-based independent review. The review command starts in a disposable directory and receives **only selected changed source + check evidence**, not your complete repository; it refuses to forward suspected credentials or oversized diffs. This is **not** a hardened sandbox. Feedback triggers bounded repair attempts. Without meaningful checks **and** a valid independent review, the status is **unverified**. Re-run the same command with `--resume` to use a failed checkpoint and increase `--attempts` if needed; a resume re-invokes the builder, it is not an exactly-once process manager.
 
-No real provider tokens, monetary costs or model quality are measured yet; model defaults come from already-installed CLIs. Optional per-role model IDs are read from environment variables (see `references/delegation.md`). No paid model or external proxy is provisioned by this repo. The runner **will** ask the existing CLI to change project files when `--execute` is used. The project task and short status are stored under `.setup-start/state.json` (git-ignored), so don't put secrets in task text.
+No provider tokens, live prices, quotas or model quality are measured by this repo. Model defaults inherit your installed CLIs unless you provide a model inventory. The runner **will** ask an existing CLI to edit your project when `--execute` is used; execute only on a trusted codebase. The local state file under `.setup-start/state.json` is Git-ignored and stores a **task hash** rather than the full task. Never put credentials into task prompts.
+
+### Optional cost-aware model routing
+
+Create your own inventory by adapting [docs/models.example.json](docs/models.example.json). **Do not use its placeholder identifiers or rates as real prices.** Then inspect the recommendation:
+
+```bash
+python skills/setup-and-start/scripts/router.py models "Review security-sensitive backend changes" --policy path/to/models.json --role review --mode economy
+python skills/setup-and-start/scripts/router.py run "Refactor API" --project . --model-policy path/to/models.json --mode balanced
+```
+
+Modes: `economy` prioritizes price subject to a heuristic minimum strength, `balanced` uses price and strength, and `quality` prioritizes user-declared strength. The policy can select CLI-specific models for build and review, **not** invisibly provision accounts or reliably compare empirical capabilities. Native subagent routing remains runtime-dependent.
+
+### Optional real-browser UI quality loop
+
+After you run your app at a loopback address, with Python Playwright and its browser already installed:
+
+```bash
+python skills/setup-and-start/scripts/browser_audit.py http://localhost:3000
+```
+
+This captures 390px mobile and 1440px desktop screenshots, plus a JSON report checking overflow, broken images, unlabeled controls and JavaScript exceptions. Reports live under `.setup-start/visual-evidence/`. Actual screenshot inspection and UX testing remain essential. Remote URLs require an explicit `--allow-remote` flag.
 
 ## Caveman (explicit priority)
 
@@ -60,9 +86,9 @@ User request
 
 ## What is here / what's next
 
-**Implemented:** portable skill, curated registry, Arabic/English task matching, phase-filtered routing, doctor, dry-run, optional agent CLI execution, explicit test gates, independent reviewer selection across available CLIs, bounded repairs, state file, safety guidance and tests.
+**Implemented:** portable skill, validated registry and phase planner, Arabic/English matching with exclusions, lightweight project detection, Caveman-style bounded guidance, doctor, dry-run, user-managed model policy, optional CLI execution, opt-in auto checks, separate evidence-limited reviewer, bounded repair, resumable checkpoint attempts, optional Playwright screenshots and cross-platform standard-library tests.
 
-**Not yet implemented:** automatic token metering, empirical cheapest-model routing, crash-safe resume, provider quota discovery, true sandboxed reviewer enforcement, production-grade browser screenshot loop, auto-updating or executing third-party skills, deployment integrations, platform parity performance evaluations. See [roadmap](docs/ROADMAP.md).
+**Not yet implemented:** actual token metering, empirical cheapest-model routing, provider quota discovery, hard OS-level sandboxing, automatic hosted deployment, fully autonomous lifecycle job scheduling, downloading third-party skills, or measured benchmarks against Lovable. See [roadmap](docs/ROADMAP.md).
 
 ### Verification
 
