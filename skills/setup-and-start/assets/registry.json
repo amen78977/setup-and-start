@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "max_loaded_packs": 3,
+    "external_skill_install": "manual-review-only",
+    "model_prices": "not-assumed",
+    "automatic_deployment": false
+  },
+  "packs": [
+    {"id":"planning","stages":["discover","plan"],"weight":2,"triggers":["plan","spec","architecture","project","idea","requirements","تخطيط","مشروع","متطلبات","فكرة","معمارية"],"reference":"references/planning.md","source":"in-repo"},
+    {"id":"coding","stages":["build"],"weight":1,"triggers":["refactor","feature","bug","implement","code","fix","coding","برمجة","كود","ميزة","اصلاح","خطأ"],"reference":"references/coding.md","source":"in-repo"},
+    {"id":"frontend","stages":["plan","build","review"],"weight":3,"triggers":["frontend","react","next.js","css","html","ui","ux","design","interface","website","واجهة","تصميم","موقع","صفحة","rtl"],"reference":"references/frontend.md","source":"in-repo"},
+    {"id":"backend","stages":["plan","build","test"],"weight":3,"triggers":["backend","api","server","database","sql","postgres","auth","endpoint","قاعدة البيانات","باك اند","الخادم","سيرفر","مصادقة"],"reference":"references/backend.md","source":"in-repo"},
+    {"id":"desktop","stages":["plan","build","test"],"weight":3,"triggers":["electron","tauri","desktop","windows","سطح المكتب","ديسكتوب","ويندوز"],"reference":"references/desktop.md","source":"in-repo"},
+    {"id":"mobile","stages":["plan","build","test"],"weight":3,"triggers":["android","ios","mobile","expo","react native","flutter","تطبيق جوال","هاتف","موبايل"],"reference":"references/mobile.md","source":"in-repo"},
+    {"id":"automation","stages":["plan","build","test"],"weight":2,"triggers":["n8n","workflow","automation","agent","mcp","telegram","أتمتة","وكيل","تلقائي","ورك فلو"],"reference":"references/automation.md","source":"in-repo"},
+    {"id":"browser","stages":["build","test","review"],"weight":2,"triggers":["playwright","browser","e2e","screenshot","chrome","متصفح","اختبار واجهة","لقطة شاشة"],"reference":"references/browser.md","source":"in-repo"},
+    {"id":"security","stages":["plan","test","review"],"weight":2,"triggers":["security","secret","vulnerability","privacy","injection","oauth","أمان","أمني","ثغرة","مفاتيح","خصوصية"],"reference":"references/security.md","source":"in-repo"},
+    {"id":"verification","stages":["test","review"],"weight":1,"triggers":["test","review","quality","debug","regression","audit","اختبار","مراجعة","تدقيق","جودة"],"reference":"references/verification.md","source":"in-repo"},
+    {"id":"deployment","stages":["plan","build","test"],"weight":2,"triggers":["deploy","docker","ci","cd","hosting","release","vercel","نشر","استضافة","إصدار"],"reference":"references/deployment.md","source":"in-repo"},
+    {"id":"wordpress","stages":["plan","build","test"],"weight":3,"triggers":["wordpress","woocommerce","php","ووردبريس","ووكومرس"],"reference":"references/wordpress.md","source":"in-repo"}
+  ]
+}
