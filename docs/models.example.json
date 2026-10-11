@@ -1,0 +1,32 @@
+{
+  "_comment": "PLACEHOLDER MODEL IDS. Edit names, availability, provider and YOUR verified rates before use. No API keys belong here.",
+  "models": [
+    {
+      "agent": "codex",
+      "name": "your-codex-model-id",
+      "strength": 3,
+      "input_per_million": null,
+      "output_per_million": null,
+      "available": false,
+      "roles": ["discover", "plan", "build", "review"]
+    },
+    {
+      "agent": "claude",
+      "name": "your-claude-model-id",
+      "strength": 4,
+      "input_per_million": null,
+      "output_per_million": null,
+      "available": false,
+      "roles": ["plan", "build", "review"]
+    },
+    {
+      "agent": "opencode",
+      "name": "your-opencode-model-id",
+      "strength": 2,
+      "input_per_million": null,
+      "output_per_million": null,
+      "available": false,
+      "roles": ["discover", "build"]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-# Cost-aware model delegation and CLI runner
+# Cost-aware model delegation, explicit inventory and CLI runner
 
 Prefer native subagents when the runtime exposes them; a markdown skill alone cannot create provider accounts, change models or grant permissions.
 
@@ -6,6 +6,8 @@ Prefer native subagents when the runtime exposes them; a markdown skill alone ca
 - Use names/models **actually configured** by the user; no invented model capability or current price table.
 - Bound requests, context slices, maximum attempts, and timeout. Do not send secrets or full repositories to unknown endpoints.
 - Give independent review to a different configured provider where practical. Two passes on one model are not independent verification.
+- With `router.py models "<task>" --policy models.json --mode economy` an **explicit user-configured** model inventory is scored by role/complexity and USD-per-million token estimates. The heuristic strength scores are **user assertions**, not capability benchmarks; unknown rates are never treated as free.
+- To let `run` choose model IDs, pass `--model-policy /path/to/models.json --mode economy`. No provider credentials, model subscriptions, prices or quotas are provisioned. Without a policy, inherit native CLI defaults.
 - If only one CLI exists, the optional runner completes a builder pass but marks result **unverified** rather than faking review.
 
 ### Optional executable path
@@ -14,7 +16,7 @@ Prefer native subagents when the runtime exposes them; a markdown skill alone ca
 
 `python scripts/router.py run "Implement a unit test" --project .` gives a dry-run.
 
-`python scripts/router.py run "Implement a unit test" --project . --execute --check "python -m unittest discover -s tests"` invokes the configured CLI and then any check command, and runs a separate read-only **prompt-based** review if a different CLI is found. It cannot sandbox the external CLI; run only inside a trusted project/container. With no check or independent reviewer, success remains unverified.
+`python scripts/router.py run "Implement a unit test" --project . --execute --check "python -m unittest discover -s tests"` invokes the configured CLI and checks, then supplies a **bounded changed-source diff** to a separate reviewer running in a disposable cwd if another CLI exists. A disposable cwd is **not** a security sandbox. If a diff is too large or contains suspected credentials, independent remote review is blocked. `--auto-checks` is an explicit opt-in to execute local npm/python scripts. With no check or reviewer, success remains unverified. `--resume` continues failed checkpoint attempts with matching task hash and additional retry budget.
 
 Select provider models explicitly if needed using `SETUP_START_CODEX_BUILD_MODEL`, `SETUP_START_CLAUDE_BUILD_MODEL`, `SETUP_START_OPENCODE_BUILD_MODEL` (and corresponding `_REVIEW_MODEL`). Defaults inherit the CLI's model. This is configuration, not measured dynamic cost routing.
 

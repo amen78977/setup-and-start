@@ -63,7 +63,9 @@ class RoutingTests(unittest.TestCase):
                 if cmd[0] == "claude":
                     return subprocess.CompletedProcess(cmd, 0, '{"approved":true,"issues":[]}', "")
                 return subprocess.CompletedProcess(cmd, 0, "OK", "")
-            with patch.object(router, "choose_agent", side_effect=["codex", "claude"]), patch.object(router, "execute", side_effect=fake_execute):
+            with patch.object(router, "choose_agent", side_effect=["codex", "claude"]), patch.object(router, "execute", side_effect=fake_execute), patch.object(router.evidence, "collect", return_value={
+                "available": True, "reason": "test fixture", "changed": ["src.py"],
+                "patch": "+ def feature(): pass", "sha256": "fixture"}):
                 code = router.run(args)
             self.assertEqual(code, 0)
             self.assertEqual(len(calls), 3)
