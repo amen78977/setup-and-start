@@ -13,7 +13,10 @@ import re
 import subprocess
 
 ALLOWED_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java",
-                    ".php", ".css", ".html", ".md", ".json", ".yml", ".yaml", ".toml"}
+                    ".php", ".css", ".html", ".md", ".json", ".yml", ".yaml", ".toml",
+                    ".vue", ".svelte", ".dart", ".kt", ".swift", ".scss", ".sass",
+                    ".sql", ".sh", ".ps1", ".c", ".cpp", ".h", ".hpp", ".cs",
+                    ".rb", ".ex", ".exs", ".astro", ".mdx", ".xml", ".gradle"}
 DENY_NAMES = {".env", ".env.local", ".env.production", "id_rsa", "id_ed25519"}
 SENSITIVE = re.compile(
     r"""(?ix)
@@ -95,6 +98,14 @@ def _source_snapshot(project: Path, max_bytes: int,
                     "changed": [], "patch": ""}
         texts.append(excerpt)
         filenames.append(rel)
+    if baseline_files:
+        deleted = sorted(set(baseline_files) - set(file_hashes))
+        if deleted:
+            # We have hashes of old files but not their contents. Do not allow
+            # an external reviewer to overlook removals and approve blindly.
+            names = ", ".join(deleted[:12])
+            return {"available": False, "reason": "Source file deletion requires local review: " + names,
+                    "changed": deleted, "patch": "", "file_hashes": file_hashes}
     patch = "".join(texts)
     return {"available": bool(texts), "reason": "Non-Git source snapshot" if texts else "No reviewable source files",
             "changed": filenames, "patch": patch,
@@ -120,27 +131,34 @@ def collect(project: Path, max_bytes: int = 40000, baseline: str | None = None,
         valid = _git(project, "cat-file", "-t", baseline)
         if valid.returncode or valid.stdout.strip() != "commit":
             raise ValueError("baseline commit not present in this repository")
-    status = _git(project, "status", "--porcelain", "--untracked-files=all")
+    status = _git(project, "status", "--porcelain", "-z", "--untracked-files=all")
     if status.returncode:
         return {"available": False, "reason": "git status failed", "changed": [], "patch": ""}
     # Track selected paths only: no build caches, .env, binary or git config.
     filenames = []
     excluded_sensitive = []
-    for line in status.stdout.splitlines():
-        name = line[3:].strip()
-        if " -> " in name:
-            name = name.split(" -> ")[-1]
+    records = iter(status.stdout.split("\0"))
+    for line in records:
+        if not line:
+            continue
+        change = line[:2]
+        name = line[3:]
+        if "R" in change or "C" in change:
+            # -z format provides the former name as the next NUL record.
+            next(records, None)
         if _safe_name(name):
             filenames.append(name)
         elif SENSITIVE_NAMES.search(name) or Path(name).name in DENY_NAMES:
             excluded_sensitive.append(name)
     if baseline is not None:
-        committed = _git(project, "diff", "--name-only", "--diff-filter=ACMRD",
+        committed = _git(project, "diff", "--name-only", "-z", "--diff-filter=ACMRD",
                          baseline, "HEAD")
         if committed.returncode:
             return {"available": False, "reason": "Cannot compare baseline with HEAD",
                     "changed": [], "patch": ""}
-        for name in committed.stdout.splitlines():
+        for name in committed.stdout.split("\0"):
+            if not name:
+                continue
             if _safe_name(name):
                 filenames.append(name)
             elif SENSITIVE_NAMES.search(name) or Path(name).name in DENY_NAMES:
@@ -148,7 +166,10 @@ def collect(project: Path, max_bytes: int = 40000, baseline: str | None = None,
     if excluded_sensitive:
         return {"available": False, "reason": "Changes include sensitive filenames; local-only review required",
                 "changed": [], "patch": ""}
-    filenames = sorted(set(filenames))[:100]
+    filenames = sorted(set(filenames))
+    if len(filenames) > 100:
+        return {"available": False, "reason": "More than 100 changed source paths: partial review prohibited",
+                "changed": [], "patch": ""}
     if not filenames:
         return {"available": False, "reason": "No reviewable changed source files",
                 "changed": [], "patch": ""}

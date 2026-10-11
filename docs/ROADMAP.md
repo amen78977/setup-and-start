@@ -20,7 +20,7 @@
 - [ ] Automatic browser-based UI evaluation inside runner; human/vision screenshot assessment.
 - [ ] Explicit user-approved external skill pinning, license review and optional installs.
 
-## v0.3 — model economics (current experimental)
+## v0.3 — model economics (shipped)
 - [x] Explicit opt-in structured-output token accounting for supported CLI schemas; unknowns remain unknown.
 - [x] Run lock, baseline-aware committed-diff review, retry on builder failure, optional browser gate.
 - [x] Economically conditional small-model discovery delegation using a user-owned priced model inventory.
@@ -39,3 +39,13 @@
 - Human-reviewed licensing of redistributed third-party assets.
 
 No milestone should claim a universal 0-bug guarantee or measured token reductions without data.
+
+## v1.0.0 — stable core release
+- [x] Real local subprocess integration test with fake agent CLIs; no paid provider calls.
+- [x] Windows-safe known CLI launchers avoid passing untrusted task text through CMD/BAT shims.
+- [x] Windows-specific command-tokenization fix, end-to-end verification of build/check/review.
+- [x] Fail closed when a reviewer would see only part of the changed source (path count/diff budget); includes Vue, Svelte, Flutter and spaced/Unicode filenames.
+- [x] OpenCode structured output review/discovery parsing, timeout process-tree cleanup attempt and no unnecessary retry when reviewer unavailable.
+- [x] Browser smoke treats HTTP errors as failures; real localhost RTL browser test passes.
+- [x] Stable version manifest and publishable changelog, tests on Windows/Linux/Python 3.10/3.11/3.13.
+- [ ] Production-grade guarantees beyond the stable core (true isolation, billed cost limits, parallel agent scheduling, real-world A/B performance) remain intentionally **unclaimed**.

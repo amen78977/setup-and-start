@@ -27,6 +27,9 @@ def url_allowed(url: str, remote: bool = False) -> bool:
 
 def assess(metrics: dict) -> dict:
     issues = []
+    status = metrics.get("http_status")
+    if status is not None and (not isinstance(status, int) or status >= 400):
+        issues.append("HTTP error response")
     if metrics.get("overflow_px", 0) > 2:
         issues.append("Horizontal overflow on viewport")
     if metrics.get("broken_images", 0):
@@ -77,7 +80,7 @@ def capture(url: str, output: Path, *, remote: bool = False, timeout_ms: int = 1
                           window.RTCPeerConnection = undefined;
                           window.webkitRTCPeerConnection = undefined;
                         })()""")
-                    page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                     if not url_allowed(page.url, remote):
                         raise ValueError("Navigation left the allowed loopback origin")
                     page.wait_for_timeout(800)
@@ -100,6 +103,7 @@ def capture(url: str, output: Path, *, remote: bool = False, timeout_ms: int = 1
                     }""")
                     measurements["page_errors"] = len(errors)
                     measurements["page_errors_sample"] = errors[:3]
+                    measurements["http_status"] = response.status if response else None
                     filename = key + ".png"
                     document_height = page.evaluate("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)")
                     full_capture = document_height <= 12000

@@ -9,6 +9,9 @@ spec.loader.exec_module(mod)
 
 
 class BrowserAuditTests(unittest.TestCase):
+    def test_http_error_fails_even_if_page_looks_fine(self):
+        self.assertFalse(mod.assess({"http_status": 404, "overflow_px": 0})["pass"])
+        self.assertFalse(mod.assess({"http_status": 500})["pass"])
     def test_url_is_local_by_default(self):
         self.assertTrue(mod.url_allowed("http://127.0.0.1:3000"))
         self.assertTrue(mod.url_allowed("http://localhost:5173"))
