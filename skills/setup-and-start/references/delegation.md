@@ -21,4 +21,4 @@ Prefer native subagents when the runtime exposes them; a markdown skill alone ca
 
 Select provider models explicitly if needed using `SETUP_START_CODEX_BUILD_MODEL`, `SETUP_START_CLAUDE_BUILD_MODEL`, `SETUP_START_OPENCODE_BUILD_MODEL` (and corresponding `_REVIEW_MODEL`). Defaults inherit the CLI's model. This is configuration, not measured dynamic cost routing.
 
-No providers, credentials, Caveman proxy, or tools are installed automatically. State is saved to `.setup-start/state.json`, containing task text and review summaries; **do not put secrets in task text**. Never commit the state directory.
+No providers, credentials, Caveman proxy, or tools are installed automatically. State is saved to `.setup-start/state.json`, containing a **task hash**, check results and review summaries, not the full task; **do not put secrets in task text or check commands**. Never commit the state directory. If review is unavailable but configured tests pass, the runner reports `tests_passed_review_unavailable` and does not spend extra repair turns merely because a reviewer is missing.

@@ -16,6 +16,7 @@ import time
 import hashlib
 import importlib.util
 import math
+import signal
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import planner
@@ -47,10 +48,17 @@ def route(task: str, stage: str = "auto", limit: int = 3, project: Path | None =
 
 
 def doctor() -> dict:
+    version_file = ROOT / "assets" / "version.json"
+    version = json.loads(version_file.read_text(encoding="utf-8"))["version"]
+    home = Path.home()
     return {
+        "setup_and_start_version": version,
         "python": sys.version.split()[0],
         "agents": {name: bool(shutil.which(name)) for name in AGENTS},
         "caveman": bool(shutil.which("caveman")),
+        "caveman_skill": any(path.is_file() for path in (
+            home / ".agents" / "skills" / "caveman" / "SKILL.md",
+            home / ".claude" / "skills" / "caveman" / "SKILL.md")),
         "git": bool(shutil.which("git")),
         "node": bool(shutil.which("node")),
         "playwright": bool(shutil.which("playwright")),
@@ -162,6 +170,12 @@ def parse_review(output: str) -> dict | None:
                     candidates.append(json.loads(item["text"]))
                 except ValueError:
                     pass
+            part = value.get("part")
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                try:
+                    candidates.append(json.loads(part["text"]))
+                except ValueError:
+                    pass
     decisions = [
         value for value in candidates
         if isinstance(value, dict) and type(value.get("approved")) is bool
@@ -176,13 +190,80 @@ def parse_review(output: str) -> dict | None:
     return decisions[-1] if len(signatures) == 1 else None
 
 
+def safe_windows_launcher(command: list[str]) -> list[str]:
+    """Avoid passing user-supplied prompts to Windows .CMD/.BAT wrappers.
+
+    On Windows, CreateProcess may implicitly execute .cmd files through cmd.exe,
+    even with shell=False. Prefer native executables or direct node entrypoints.
+    Refuse an unsupported shim rather than quietly weakening that boundary.
+    """
+    if os.name != "nt" or not command:
+        return command
+    raw = command[0]
+    resolved = shutil.which(raw) if raw.lower() in ("codex", "claude", "opencode", "npm") else raw
+    if not resolved:
+        return command
+    path = Path(resolved)
+    if path.suffix.lower() not in (".cmd", ".bat"):
+        return [str(path), *command[1:]] if resolved != raw else command
+
+    if raw.lower() == "opencode":
+        candidate = path.parent / "node_modules" / "opencode-ai" / "bin" / "opencode.exe"
+        if candidate.is_file():
+            return [str(candidate), *command[1:]]
+    package = {
+        "npm": Path("node_modules/npm/bin/npm-cli.js"),
+        "claude": Path("node_modules/@anthropic-ai/claude-code/cli.js"),
+        "codex": Path("node_modules/@openai/codex/bin/codex.js"),
+    }.get(raw.lower())
+    if package:
+        node = shutil.which("node")
+        candidate = path.parent / package
+        if node and candidate.is_file() and Path(node).suffix.lower() == ".exe":
+            return [node, str(candidate), *command[1:]]
+    raise ValueError(
+        f"Cannot safely launch {path.name}: Windows CMD/BAT shims are not allowed "
+        "with agent prompts. Use a native executable or supported Node entrypoint."
+    )
+
+
 def execute(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                              check=False, encoding="utf-8", errors="replace")
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(cmd, 124, "", f"Timed out after {timeout}s")
-    except OSError as exc:
+        launched = safe_windows_launcher(cmd)
+        process = subprocess.Popen(
+            launched, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+            start_new_session=(os.name != "nt"),
+            creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            # Terminate descendants as well: a parent CLI can spawn tool
+            # processes that would otherwise continue writing after timeout.
+            if os.name == "nt":
+                try:
+                    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                   capture_output=True, timeout=10, check=False)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            if process.poll() is None:
+                process.kill()
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = "", "Could not collect timed-out child process output"
+            return subprocess.CompletedProcess(
+                cmd, 124, stdout[-1000:], stderr[-1000:] + f"\nTimed out after {timeout}s"
+            )
+    except (OSError, ValueError) as exc:
         return subprocess.CompletedProcess(cmd, 127, "", str(exc))
 
 
@@ -222,6 +303,21 @@ def auto_checks(project: Path) -> list[list[str]]:
         except (ValueError, OSError):
             pass
     return checks
+
+
+def split_command(command: str) -> list[str]:
+    """Tokenize an explicit check while preserving Windows backslashes.
+
+    shlex's default POSIX mode turns C:\\Users\\... into C:Users..., breaking
+    valid commands. Windows-mode shlex retains quoting, which we then remove
+    around individual arguments. No command is ever sent to a shell.
+    """
+    if os.name == "nt":
+        parts = shlex.split(command, posix=False)
+        return [part[1:-1] if len(part) >= 2
+                and part[0] == part[-1] and part[0] in ("'", '"')
+                else part for part in parts]
+    return shlex.split(command)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -322,7 +418,7 @@ def _run_unlocked(args: argparse.Namespace) -> int:
     if not 30 <= args.timeout <= 3600 or not 1 <= args.attempts <= 3:
         print("timeout must be 30..3600 and attempts 1..3", file=sys.stderr)
         return 2
-    checks = [shlex.split(cmd) for cmd in args.check]
+    checks = [split_command(cmd) for cmd in args.check]
     if any(not cmd for cmd in checks):
         print("Invalid empty check command", file=sys.stderr)
         return 2
@@ -434,9 +530,16 @@ def _run_unlocked(args: argparse.Namespace) -> int:
             status["checks"].append({"command": cmd, "exit": checked.returncode,
                                      "stdout_tail": redact(checked.stdout[-600:]),
                                      "stderr_tail": redact(checked.stderr[-600:])})
-            if checked.returncode:
+            empty_test_run = (
+                checked.returncode == 0
+                and any("unittest" in x or "pytest" in x for x in cmd)
+                and bool(re.search(r"(?:Ran\s+0\s+tests?|no tests ran|collected\s+0\s+items)",
+                                   checked.stdout + "\n" + checked.stderr, re.IGNORECASE))
+            )
+            if checked.returncode or empty_test_run:
                 checks_ok = False
-                feedback += f"\nCheck {cmd} exited {checked.returncode}: {redact(checked.stdout[-1200:])} {redact(checked.stderr[-1200:])}"
+                feedback += (f"\nCheck {cmd} failed (empty tests={empty_test_run}, exit={checked.returncode}): "
+                             + redact(checked.stdout[-1200:]) + " " + redact(checked.stderr[-1200:]))
         if getattr(args, "ui_url", None):
             url = args.ui_url
             try:
@@ -458,6 +561,11 @@ def _run_unlocked(args: argparse.Namespace) -> int:
         observed = evidence.collect(project, max_bytes=getattr(args, "review_budget", 24000),
                                     baseline=status["baseline"],
                                     source_baseline=status.get("initial_file_sha256"))
+        # review_prompt has a fixed textual envelope; never silently omit
+        # part of a larger diff while claiming a complete independent review.
+        if observed.get("available") and len(observed.get("patch", "")) > 38000:
+            observed = {"available": False, "reason": "Review evidence exceeds safe prompt budget",
+                        "changed": observed.get("changed", []), "patch": ""}
         initial_hash = status.get("initial_evidence_sha256")
         if initial_hash and observed.get("sha256") == initial_hash:
             observed = {"available": False, "reason": "No source changes since run began",
@@ -495,6 +603,11 @@ def _run_unlocked(args: argparse.Namespace) -> int:
         save()
         if checks_ok and approved:
             status["status"] = "verified_by_configured_checks_and_reviewer"
+            break
+        # A missing reviewer or withheld evidence is not a code defect. Repeating
+        # a paid build will not solve it; preserve the useful test result.
+        if checks_ok and not approved and (not reviewer or not observed["available"]):
+            status["status"] = "tests_passed_review_unavailable"
             break
     else:
         status["status"] = "needs_attention" if reviewer and checks else "unverified"

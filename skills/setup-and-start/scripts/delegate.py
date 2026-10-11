@@ -72,7 +72,7 @@ def parse(output: str) -> dict | None:
         except ValueError:
             continue
         if isinstance(result, dict):
-            nested = result.get("item")
+            nested = result.get("item") or result.get("part")
             embedded = nested.get("text") if isinstance(nested, dict) else result.get("result")
             if isinstance(embedded, str):
                 try:

@@ -4,7 +4,7 @@
 
 Portable, small-context orchestration skill for **Claude Code, Codex, OpenCode** and other Agent Skills-compatible assistants. It routes software tasks to a maximum of three relevant guidance packs at a time, uses Caveman-style token discipline, and specifies an implementation → tests → independent review → repair workflow.
 
-> **Status: experimental v0.3.** This is a testable, single-entry **software-agent workflow optimizer**, not a competitor to app-builder products. It selects relevant guidance per phase and can coordinate already-authenticated coding CLIs, bounded tests, independent review and repairs. It cannot raise the model's intrinsic intelligence, guarantee zero bugs or guarantee lower cost on every task.
+> **Status: v1.0.0 — stable core release.** The one-entry skill, bounded phase router and opt-in local runner have automated regression and mocked end-to-end coverage. Optional model routing and autonomous CLI workflows remain environment-dependent: this project does **not** raise the model's intrinsic intelligence, guarantee zero bugs, or promise lower cost on every task. Its purpose is to improve coding-agent workflows, **not** compete directly with any app builder.
 
 ## Quick start — no Python needed for the skill itself
 
@@ -13,6 +13,8 @@ npx skills add amen78977/setup-and-start -s setup-and-start -a claude-code -a co
 ```
 
 Run a supported agent and ask: **"Use setup-and-start: build a responsive Arabic inventory web app with tests."** The agent follows `skills/setup-and-start/SKILL.md` and loads only relevant `references/*.md` when needed. The `npx skills` installer is a third-party CLI; review its permissions before use. If an agent's installer target changes, consult `npx skills add ... --list` / current agent docs.
+
+To install globally for all future projects, append `-g` to the command. To update an existing installation, run the same install command again. **Only one skill must be invoked by the user**; all the bundled specialty reference packs are selected on demand.
 
 ## Local zero-dependency helper (Python >= 3.10)
 
@@ -46,11 +48,17 @@ python skills/setup-and-start/scripts/router.py run "Polish the search UI" --pro
   --execute --auto-checks --usage-telemetry --ui-url http://localhost:3000
 ```
 
-`run` attempts implementation, real checks, and—if a *different* installed CLI exists—a bounded diff-based independent review. The reviewer receives **only selected changed source + check evidence**, not your complete repository. Changes committed by the builder are still found using the pre-run HEAD commit. It refuses to forward suspected credentials or oversized diffs. The temporary reviewer directory is **NOT a hardened sandbox**, and secret scanning is best effort. A project-local run lock prevents simultaneous edits; stale locks require manual inspection. Feedback triggers bounded repair attempts, including retrying recoverable builder failures. Without meaningful checks **and** a valid independent review, the status is **unverified**. Re-run with `--resume` to use a failed checkpoint and increase `--attempts` if needed; the process is not an exactly-once job scheduler.
+**Windows PowerShell** (single-line syntax; POSIX backslash continuation above does not work in PowerShell):
 
-The runner refuses pre-existing dirty Git worktrees by default to avoid accidentally reviewing unrelated code. Commit/stash existing changes first, or explicitly use `--allow-dirty`. A real verification command (`--check` or `--auto-checks`) is required before paid execution; UI screenshots cannot replace functional tests.
+```powershell
+python skills/setup-and-start/scripts/router.py run "Fix the API tests" --project . --execute --auto-checks --attempts 2
+```
 
-No provider tokens, live prices, quotas or model quality are measured by this repo. Model defaults inherit your installed CLIs unless you provide a model inventory. The runner **will** ask an existing CLI to edit your project when `--execute` is used; execute only on a trusted codebase. The local state file under `.setup-start/state.json` is Git-ignored and stores a **task hash** rather than the full task. Never put credentials into task prompts.
+`run` attempts implementation, real checks, and—if a *different* installed CLI exists—a bounded diff-based independent review. The reviewer receives **only selected changed source + check evidence**, not your complete repository. Changes committed by the builder are still found using the pre-run HEAD commit. It refuses to forward suspected credentials, partial/incomplete changesets or oversized diffs. The temporary reviewer directory is **NOT a hardened sandbox**, and secret scanning is best effort. A project-local run lock prevents simultaneous edits; stale locks require manual inspection. Feedback triggers bounded repair attempts, including retrying recoverable builder failures. Without meaningful checks **and** a valid independent review, the result is not fully verified. Re-run with `--resume` to use a failed checkpoint and increase `--attempts` if needed; the process is not an exactly-once job scheduler.
+
+The runner refuses pre-existing dirty Git worktrees by default to avoid accidentally reviewing unrelated code. Commit/stash existing changes first, or explicitly use `--allow-dirty`. A real verification command (`--check` or `--auto-checks`) is required before paid execution; UI screenshots cannot replace functional tests. It refuses to count empty test suites as passing. If tests pass but independent review is unavailable, status is `tests_passed_review_unavailable` rather than a false "fully verified" result, and the runner stops instead of wasting repeated model invocations.
+
+No reliable live prices, quotas or independent model-quality benchmarks are measured by this repo. Token usage can be parsed *only when supported CLIs return machine-readable counters*; unknown usage stays unknown. Model defaults inherit your installed CLIs unless you provide a model inventory. The runner **will** ask an existing CLI to edit your project when `--execute` is used; execute only on a trusted codebase. The local state file under `.setup-start/state.json` is Git-ignored and stores a **task hash** rather than the full task. Never put credentials into task prompts.
 
 ### Optional cost-aware model routing
 
@@ -79,7 +87,7 @@ This captures 390px mobile and 1440px desktop screenshots, plus a JSON report ch
 
 ## Caveman (explicit priority)
 
-Caveman is a first-class *policy*: concise responses, careful context selection, no lossy compression of logs necessary to debug. The official [Caveman](https://github.com/JuliusBrussee/caveman) skill/proxy can be installed separately after license/privacy review. **We don't vendor it, auto-install it, or misrepresent claimed savings as verified here.**
+Caveman is a first-class *policy*: concise responses, targeted loading, no lossy compression of source or debugging evidence. If the official [Caveman](https://github.com/JuliusBrussee/caveman) skill is already present, Setup & Start's instructions explicitly permit using its compatible output rules. Its optional proxy can be installed separately after license/privacy review. **We do not vendor or auto-activate the proxy, or misrepresent claimed savings as verified here.**
 
 ## Architecture
 
@@ -96,9 +104,9 @@ User request
 
 ## What is here / what's next
 
-**Implemented:** portable skill, phase planner, Arabic/English matching, bounded guidance, Caveman-style context discipline, explicit model policies, conditional low-cost discovery delegation, optional structured usage accounting, optional CLI execution, opt-in checks and localhost browser QA, separate evidence-based reviewer, bounded repair attempts, checkpoints, run lock, no automatic third-party installs and cross-platform tests.
+**Implemented:** portable one-entry skill, phase planner, Arabic/English matching, bounded guidance, Caveman-style context discipline, explicit model policies, conditional low-cost discovery delegation, optional structured usage accounting, optional CLI execution, opt-in checks and localhost browser QA, separate evidence-based reviewer, bounded repair attempts, checkpoints, run lock, no automatic third-party installs, cross-platform unit tests, **real subprocess integration tests using fake CLIs** and a local real-browser smoke test.
 
-**Not yet implemented:** reliable counters for every CLI/provider, empirical model capability calibration, provider quota discovery, true OS-level reviewer isolation, cost-limited actual billing, native multi-agent parallel worktrees, cancel-safe background job scheduling, and verified improvements on real-world coding tasks. See [roadmap](docs/ROADMAP.md).
+**Out of scope or not yet implemented:** reliable counters for every CLI/provider, empirical model capability calibration, provider quota discovery, true OS-level reviewer isolation, real billing caps, native parallel multi-agent worktrees, crash-proof job scheduling, and measured savings against no-skill runs on real coding tasks. See [roadmap](docs/ROADMAP.md).
 
 ### Verification
 
@@ -107,7 +115,7 @@ python -m unittest discover -s tests -v
 python benchmarks/evaluate.py
 ```
 
-GitHub Actions runs the standard-library tests and offline routing fixtures on every proposed change. The offline benchmark tests **which packs are selected** and the number of **guidance characters** read; it does not measure model quality, real token usage, time or billing.
+GitHub Actions runs the standard-library tests and offline routing fixtures on every proposed change (Windows/Linux, Python 3.10/3.11/3.13). The offline benchmark tests **which packs are selected** and the number of **guidance characters** read; it does not measure model quality, real token usage, time or billing. A no-payment end-to-end test uses local fake agent CLIs; optional real-browser tests require installed Playwright/Chromium.
 
 ## External sources
 

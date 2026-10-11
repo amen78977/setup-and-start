@@ -39,6 +39,19 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(result["changed"], ["src/new.py"])
             self.assertNotIn("old = 1", result["patch"])
 
+    def test_non_git_deleted_source_blocks_remote_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "src").mkdir()
+            path = project / "src" / "core.py"
+            path.write_text("def old(): return 1\n", encoding="utf-8")
+            base = evidence.collect(project)["file_hashes"]
+            path.unlink()
+            (project / "src" / "new.py").write_text("def new(): return 2\n", encoding="utf-8")
+            changed = evidence.collect(project, source_baseline=base)
+            self.assertFalse(changed["available"])
+            self.assertIn("deletion", changed["reason"])
+
     def test_diff_detected_without_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
@@ -112,6 +125,27 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn("+x = 2", found["patch"])
             with self.assertRaises(ValueError):
                 evidence.collect(d, baseline="HEAD; rm -rf .")
+
+    def test_git_unicode_spaced_and_flutter_files_detected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp)
+            subprocess.run(["git", "init", "-q"], cwd=p, check=True)
+            (p / "واجهة جميلة.vue").write_text("<template>Test</template>", encoding="utf-8")
+            (p / "screen.dart").write_text("void main() {}", encoding="utf-8")
+            info = evidence.collect(p)
+            self.assertTrue(info["available"], info)
+            self.assertIn("واجهة جميلة.vue", info["changed"])
+            self.assertIn("screen.dart", info["changed"])
+
+    def test_more_than_100_changed_files_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp)
+            subprocess.run(["git", "init", "-q"], cwd=p, check=True)
+            for n in range(101):
+                (p / f"file{n:03d}.py").write_text("x=1\n", encoding="utf-8")
+            report = evidence.collect(p)
+            self.assertFalse(report["available"])
+            self.assertIn("100", report["reason"])
 
 
 if __name__ == "__main__":

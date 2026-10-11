@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.10+ recommended for the bundled local helper; otherwise follow these instructions manually.
 ---
 
-# Setup & Start — one entry, selective context (v0.3)
+# Setup & Start — one entry, selective context (v1.0)
 
 You are the **orchestrator**, not a huge prompt containing every skill. Work end-to-end after the user gives a task. Never pretend a capability, subagent, CLI, browser, permission or test is available without checking.
 
@@ -22,7 +22,7 @@ You are the **orchestrator**, not a huge prompt containing every skill. Work end
 
 ## Always-on economy and safety
 
-- **Caveman is a core, always-on discipline**: concise progress, targeted reads, phase-specific instructions, bounded guidance (default 4,800 characters), short tool-result excerpts, no repeated transcripts or huge log dumps. Keep failure evidence intact. The official Caveman proxy is optional external software and **not bundled or falsely represented as installed**.
+- **Caveman is a core, always-on discipline**: concise progress, targeted reads, phase-specific instructions, bounded guidance (default 4,800 characters), short tool-result excerpts, no repeated transcripts or huge log dumps. Preserve exact source code, errors, negations, test commands, and security warnings. If the official Caveman skill is already installed, apply its compatible output rules; do not force-install or silently enable its proxy. The official proxy is **not bundled or falsely represented as installed**.
 - Load references **only at point of need**; never load the entire registry or all reference files into the model context.
 - Restrict parallel agents to separate files/tasks; coordinate commits and merges to avoid conflicts.
 - Do not deploy, purchase, expose credentials, wipe data or silently modify remote infrastructure. Any external network activity follows runtime permissions and user authorization.
