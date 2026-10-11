@@ -12,6 +12,8 @@ policy = router.model_policy
 
 
 class ModelPolicyTests(unittest.TestCase):
+    def test_capital_does_not_contain_api_task(self):
+        self.assertEqual(policy.complexity("capital investment", "build"), 2)
     def test_minimum_quality_and_price(self):
         rows = [
             {"agent": "codex", "name": "cheap", "strength": 2,

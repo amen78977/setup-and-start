@@ -4,7 +4,7 @@
 
 Portable, small-context orchestration skill for **Claude Code, Codex, OpenCode** and other Agent Skills-compatible assistants. It routes software tasks to a maximum of three relevant guidance packs at a time, uses Caveman-style token discipline, and specifies an implementation → tests → independent review → repair workflow.
 
-> **Status: experimental v0.2.** This is a real, testable single-entry skill/router with opt-in CLI execution, phase selection, deterministic project signals, checkpoint retries, evidence-based review, user-configured model policy and optional browser QA. It is **not** a guaranteed bug-free app builder, a hosted Lovable clone, a secure sandbox, or a magic unlimited-token interface. Providers and permissions must exist on your machine.
+> **Status: experimental v0.3.** This is a testable, single-entry **software-agent workflow optimizer**, not a competitor to app-builder products. It selects relevant guidance per phase and can coordinate already-authenticated coding CLIs, bounded tests, independent review and repairs. It cannot raise the model's intrinsic intelligence, guarantee zero bugs or guarantee lower cost on every task.
 
 ## Quick start — no Python needed for the skill itself
 
@@ -40,9 +40,15 @@ python skills/setup-and-start/scripts/router.py run "Implement a search endpoint
 # Or explicitly opt in to project-provided test/build scripts
 python skills/setup-and-start/scripts/router.py run "Fix a search bug" --project . \
   --execute --auto-checks --attempts 2
+
+# Capture supported CLI JSON usage counters, with optional local UI smoke evidence:
+python skills/setup-and-start/scripts/router.py run "Polish the search UI" --project . \
+  --execute --auto-checks --usage-telemetry --ui-url http://localhost:3000
 ```
 
-`run` attempts implementation, real checks, and—if a *different* installed CLI exists—a bounded diff-based independent review. The review command starts in a disposable directory and receives **only selected changed source + check evidence**, not your complete repository; it refuses to forward suspected credentials or oversized diffs. This is **not** a hardened sandbox. Feedback triggers bounded repair attempts. Without meaningful checks **and** a valid independent review, the status is **unverified**. Re-run the same command with `--resume` to use a failed checkpoint and increase `--attempts` if needed; a resume re-invokes the builder, it is not an exactly-once process manager.
+`run` attempts implementation, real checks, and—if a *different* installed CLI exists—a bounded diff-based independent review. The reviewer receives **only selected changed source + check evidence**, not your complete repository. Changes committed by the builder are still found using the pre-run HEAD commit. It refuses to forward suspected credentials or oversized diffs. The temporary reviewer directory is **NOT a hardened sandbox**, and secret scanning is best effort. A project-local run lock prevents simultaneous edits; stale locks require manual inspection. Feedback triggers bounded repair attempts, including retrying recoverable builder failures. Without meaningful checks **and** a valid independent review, the status is **unverified**. Re-run with `--resume` to use a failed checkpoint and increase `--attempts` if needed; the process is not an exactly-once job scheduler.
+
+The runner refuses pre-existing dirty Git worktrees by default to avoid accidentally reviewing unrelated code. Commit/stash existing changes first, or explicitly use `--allow-dirty`. A real verification command (`--check` or `--auto-checks`) is required before paid execution; UI screenshots cannot replace functional tests.
 
 No provider tokens, live prices, quotas or model quality are measured by this repo. Model defaults inherit your installed CLIs unless you provide a model inventory. The runner **will** ask an existing CLI to edit your project when `--execute` is used; execute only on a trusted codebase. The local state file under `.setup-start/state.json` is Git-ignored and stores a **task hash** rather than the full task. Never put credentials into task prompts.
 
@@ -56,6 +62,10 @@ python skills/setup-and-start/scripts/router.py run "Refactor API" --project . -
 ```
 
 Modes: `economy` prioritizes price subject to a heuristic minimum strength, `balanced` uses price and strength, and `quality` prioritizes user-declared strength. The policy can select CLI-specific models for build and review, **not** invisibly provision accounts or reliably compare empirical capabilities. Native subagent routing remains runtime-dependent.
+
+With a priced, user-owned model inventory and a sufficiently complex task, the runner **can automatically delegate one small discovery task** to a cheaper available model. This happens only if its forecast overhead is below 30% of the planned builder turn; it uses a separate temporary working directory, shares no project source automatically, and produces compact advisory JSON. `--no-delegation` disables it. Native subagent scheduling and parallel worktrees remain separate future capabilities.
+
+`--max-estimated-usd 0.10` can reject a plan whose **rough forecast** exceeds your chosen threshold, but it **cannot cap actual provider billing**. `--usage-telemetry` requests structured CLI output and parses usage counters *where available*. Reports distinguish real returned counters from unknown values. Do not infer a saving from prompt-length comparisons alone.
 
 ### Optional real-browser UI quality loop
 
@@ -86,17 +96,18 @@ User request
 
 ## What is here / what's next
 
-**Implemented:** portable skill, validated registry and phase planner, Arabic/English matching with exclusions, lightweight project detection, Caveman-style bounded guidance, doctor, dry-run, user-managed model policy, optional CLI execution, opt-in auto checks, separate evidence-limited reviewer, bounded repair, resumable checkpoint attempts, optional Playwright screenshots and cross-platform standard-library tests.
+**Implemented:** portable skill, phase planner, Arabic/English matching, bounded guidance, Caveman-style context discipline, explicit model policies, conditional low-cost discovery delegation, optional structured usage accounting, optional CLI execution, opt-in checks and localhost browser QA, separate evidence-based reviewer, bounded repair attempts, checkpoints, run lock, no automatic third-party installs and cross-platform tests.
 
-**Not yet implemented:** actual token metering, empirical cheapest-model routing, provider quota discovery, hard OS-level sandboxing, automatic hosted deployment, fully autonomous lifecycle job scheduling, downloading third-party skills, or measured benchmarks against Lovable. See [roadmap](docs/ROADMAP.md).
+**Not yet implemented:** reliable counters for every CLI/provider, empirical model capability calibration, provider quota discovery, true OS-level reviewer isolation, cost-limited actual billing, native multi-agent parallel worktrees, cancel-safe background job scheduling, and verified improvements on real-world coding tasks. See [roadmap](docs/ROADMAP.md).
 
 ### Verification
 
 ```bash
 python -m unittest discover -s tests -v
+python benchmarks/evaluate.py
 ```
 
-GitHub Actions runs the standard-library tests on every proposed change.
+GitHub Actions runs the standard-library tests and offline routing fixtures on every proposed change. The offline benchmark tests **which packs are selected** and the number of **guidance characters** read; it does not measure model quality, real token usage, time or billing.
 
 ## External sources
 

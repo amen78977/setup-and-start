@@ -42,6 +42,8 @@ class RoutingTests(unittest.TestCase):
         self.assertIsNone(router.parse_review("Looks great!"))
         self.assertIsNone(router.parse_review('{"approved":"true","issues":[]}'))
         self.assertEqual(router.parse_review('{"approved":true,"issues":[]}')["approved"], True)
+        self.assertIsNone(router.parse_review('{"approved":true,"issues":[]}\n'
+                                              '{"approved":false,"issues":["not safe"]}'))
 
     def test_model_id_validation(self):
         with patch.dict(os.environ, {"SETUP_START_CODEX_BUILD_MODEL": "x; rm -rf /"}):
@@ -63,9 +65,11 @@ class RoutingTests(unittest.TestCase):
                 if cmd[0] == "claude":
                     return subprocess.CompletedProcess(cmd, 0, '{"approved":true,"issues":[]}', "")
                 return subprocess.CompletedProcess(cmd, 0, "OK", "")
-            with patch.object(router, "choose_agent", side_effect=["codex", "claude"]), patch.object(router, "execute", side_effect=fake_execute), patch.object(router.evidence, "collect", return_value={
-                "available": True, "reason": "test fixture", "changed": ["src.py"],
-                "patch": "+ def feature(): pass", "sha256": "fixture"}):
+            with patch.object(router, "choose_agent", side_effect=["codex", "claude"]), patch.object(router, "execute", side_effect=fake_execute), patch.object(router.evidence, "collect", side_effect=[
+                {"available": False, "reason": "No changes initially", "changed": [], "patch": ""},
+                {"available": True, "reason": "Changed in build", "changed": ["src.py"],
+                 "patch": "+ def feature(): pass", "sha256": "fixture"}
+            ]):
                 code = router.run(args)
             self.assertEqual(code, 0)
             self.assertEqual(len(calls), 3)
@@ -78,9 +82,8 @@ class RoutingTests(unittest.TestCase):
                                                         max_skills=3, attempts=1, timeout=45, check=[], execute=True)
             with patch.object(router, "choose_agent", side_effect=["codex", None]), patch.object(router, "execute", return_value=subprocess.CompletedProcess([], 0, "", "")):
                 code = router.run(args)
-            self.assertEqual(code, 1)
-            state = json.loads((Path(directory) / ".setup-start" / "state.json").read_text())
-            self.assertEqual(state["status"], "unverified")
+            self.assertEqual(code, 2)
+            self.assertFalse((Path(directory) / ".setup-start" / "state.json").exists())
 
 
 if __name__ == "__main__":

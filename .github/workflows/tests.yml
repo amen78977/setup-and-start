@@ -21,3 +21,4 @@ jobs:
       - run: python skills/setup-and-start/scripts/router.py route "تصميم واجهة عربية RTL" --stage build
       - run: python skills/setup-and-start/scripts/router.py plan "Build a backend API and UI" --project .
       - run: python skills/setup-and-start/scripts/router.py run "Improve backend API tests" --project .
+      - run: python benchmarks/evaluate.py
