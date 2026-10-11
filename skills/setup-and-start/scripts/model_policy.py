@@ -16,6 +16,8 @@ def load_policy(path: Path) -> list[dict]:
     if not isinstance(data, dict) or not isinstance(data.get("models"), list):
         raise ValueError("Expected JSON object with models array")
     entries = data["models"]
+    if not entries:
+        raise ValueError("Model policy has no models; refusing implicit default-provider fallback")
     if len(entries) > 100:
         raise ValueError("Limit model inventory to 100 entries")
     for row in entries:
@@ -39,6 +41,10 @@ def load_policy(path: Path) -> list[dict]:
 def complexity(task: str, role: str) -> int:
     """Heuristic minimum strength, NOT measured model competence."""
     text = task.casefold()
+    if role == "discover":
+        # Delegated discovery is deliberately a tiny, bounded task: naming
+        # likely files and acceptance checks, not solving architecture.
+        return 1
     if role == "review":
         base = 3
     elif role == "discover":
@@ -49,12 +55,18 @@ def complexity(task: str, role: str) -> int:
         base = 2
     high = ("security", "architecture", "migration", "payment", "production",
             "distributed", "auth", "database", "performance", "critical",
+            "authentication", "authorization",
             "أمان", "معمارية", "ترحيل", "قاعدة البيانات", "مدفوعات")
     medium = ("integrate", "refactor", "complex", "backend", "api",
               "frontend", "تصميم", "تطوير", "إصلاح")
-    if any(s in text for s in high):
+    def mentioned(term: str) -> bool:
+        if term.isascii():
+            return re.search(r"(?<![a-z0-9_])" + re.escape(term) + r"(?![a-z0-9_])", text) is not None
+        return term in text
+
+    if any(mentioned(s) for s in high):
         base = max(base, 4)
-    elif any(s in text for s in medium):
+    elif any(mentioned(s) for s in medium):
         base = max(base, 3)
     if len(text) > 700:
         base = max(base, 3)

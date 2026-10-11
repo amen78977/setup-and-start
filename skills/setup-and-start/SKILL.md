@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.10+ recommended for the bundled local helper; otherwise follow these instructions manually.
 ---
 
-# Setup & Start — one entry, selective context (v0.2)
+# Setup & Start — one entry, selective context (v0.3)
 
 You are the **orchestrator**, not a huge prompt containing every skill. Work end-to-end after the user gives a task. Never pretend a capability, subagent, CLI, browser, permission or test is available without checking.
 
@@ -14,7 +14,7 @@ You are the **orchestrator**, not a huge prompt containing every skill. Work end
 1. **Discover** current code, user intent, nonfunctional requirements, available tools and risk boundaries. Read the minimum relevant files. Do not confuse absence of tests with a successful test run.
 2. **Route by PHASE**: use `python <skill-root>/scripts/router.py plan "<task>" --project .` for a small five-stage plan, or `route "<task>" --stage build --project .` for only the current references. Load **at most three** relevant packs; never paste the entire registry, prompt collection, source tree or all phases into context.
 3. **Plan once**: list measurable acceptance criteria, key dependencies and test gates. Persist milestones/checkpoints to disk for resumability. Avoid lengthy speculation for small tasks.
-4. **Delegate autonomously, when beneficial**: if native subagents are available, divide independent work by file ownership and return contracts. Prefer the lowest-cost *measured/configured* adequate model (not a guessed tier); check spawning overhead against expected savings. Keep sensitive code off untrusted providers. Native subagent models are runtime-specific; when unsupported work inline.
+4. **Delegate when worthwhile**: if native subagents are available, divide independent tasks with file ownership boundaries. Use the least expensive configured adequate model and include delegation overhead. The CLI runner currently automates one bounded low-cost discovery step, not arbitrary parallel subagent teams. Keep sensitive code away from untrusted providers. Work inline when cheaper.
 5. **Implement** in small verified increments. Preserve behavior, existing tests and architecture. Only load frontend pack during UI tasks and backend pack during backend tasks; reload on phase change. Never auto-install random GitHub skills.
 6. **Verify with evidence**: run relevant lint/typecheck/build/tests. For UI, use the visual-quality loop in `references/frontend.md`; if Playwright is available, run the *optional* localhost `scripts/browser_audit.py`, inspect actual screenshots at mobile/desktop widths, and check keyboard/a11y/RTL. Static test success is not visual success.
 7. **Independent review**: use a different trusted model/provider when worthwhile and available; share bounded diff + exact check outcomes. The bundled CLI runner reviews in a disposable cwd, but **this is NOT a security sandbox**. If errors or missing evidence remain, fix and re-test within a bounded retry budget; otherwise state the blocker explicitly.

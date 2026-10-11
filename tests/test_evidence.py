@@ -27,6 +27,18 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn("src/app.py", review["changed"])
             self.assertNotIn("NOT_FOR_REVIEW", review["patch"])
 
+    def test_non_git_review_only_includes_new_or_modified_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "src").mkdir()
+            (d / "src" / "old.py").write_text("old = 1\n", encoding="utf-8")
+            baseline = evidence.collect(d)["file_hashes"]
+            (d / "src" / "new.py").write_text("fresh = 2\n", encoding="utf-8")
+            result = evidence.collect(d, source_baseline=baseline)
+            self.assertTrue(result["available"])
+            self.assertEqual(result["changed"], ["src/new.py"])
+            self.assertNotIn("old = 1", result["patch"])
+
     def test_diff_detected_without_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
@@ -39,6 +51,7 @@ class EvidenceTests(unittest.TestCase):
             git("add", "main.py")
             git("commit", "-qm", "initial")
             (d / "main.py").write_text("x = 2\n", encoding="utf-8")
+            (d / ".gitignore").write_text(".env\n", encoding="utf-8")
             (d / ".env").write_text("password=PRIVATE", encoding="utf-8")
             found = evidence.collect(d)
             self.assertTrue(found["available"])
@@ -53,6 +66,52 @@ class EvidenceTests(unittest.TestCase):
             found = evidence.collect(d)
             self.assertFalse(found["available"])
             self.assertEqual(found["patch"], "")
+
+    def test_json_bearer_and_private_keys_block_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+            (d / "src").mkdir()
+            for name, content in (
+                ("auth.json", '{"password": "secret-value-123456"}'),
+                ("header.py", 'header = "Authorization: Bearer aabbccddee112233445566"'),
+                ("pem.py", '-----BEGIN PRIVATE KEY-----\nAAAA'),
+            ):
+                (d / "src" / name).write_text(content, encoding="utf-8")
+                self.assertFalse(evidence.collect(d)["available"])
+                (d / "src" / name).unlink()
+
+    def test_untracked_source_in_nested_directory_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+            (d / "src").mkdir()
+            (d / "src" / "new.py").write_text("x = 5\n", encoding="utf-8")
+            found = evidence.collect(d)
+            self.assertTrue(found["available"])
+            self.assertIn("src/new.py", found["changed"])
+
+    def test_committed_changes_since_baseline_still_reviewable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            def git(*cmd):
+                return subprocess.run(["git", *cmd], cwd=d, capture_output=True,
+                                      text=True, check=True).stdout.strip()
+            git("init", "-q")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.org")
+            (d / "main.py").write_text("x = 1\n", encoding="utf-8")
+            git("add", "main.py")
+            git("commit", "-qm", "initial")
+            baseline = git("rev-parse", "HEAD")
+            (d / "main.py").write_text("x = 2\n", encoding="utf-8")
+            git("add", "main.py")
+            git("commit", "-qm", "builder committed")
+            found = evidence.collect(d, baseline=baseline)
+            self.assertTrue(found["available"])
+            self.assertIn("+x = 2", found["patch"])
+            with self.assertRaises(ValueError):
+                evidence.collect(d, baseline="HEAD; rm -rf .")
 
 
 if __name__ == "__main__":

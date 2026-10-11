@@ -7,7 +7,7 @@
 - [x] User-supplied test commands, separate CLI review, bounded retry and honest status reporting.
 - [x] Standard-library regression tests and CI configuration.
 
-## v0.2 — correctness and transparency (current)
+## v0.2 — correctness and transparency (shipped)
 - [x] Deterministic, phase-specific routing with a strict context-budget, registry validation and lightweight project-type signals.
 - [x] Resume attempts from atomic JSON checkpoints (not exactly-once execution).
 - [x] Evidence manifest with changed-source diff, strict typed review decision, checks and bounded repair attempts.
@@ -20,8 +20,13 @@
 - [ ] Automatic browser-based UI evaluation inside runner; human/vision screenshot assessment.
 - [ ] Explicit user-approved external skill pinning, license review and optional installs.
 
-## v0.3 — model economics
-- [ ] Real token accounting, model quota visibility, provider adapter matrix and calibrated model competence.
+## v0.3 — model economics (current experimental)
+- [x] Explicit opt-in structured-output token accounting for supported CLI schemas; unknowns remain unknown.
+- [x] Run lock, baseline-aware committed-diff review, retry on builder failure, optional browser gate.
+- [x] Economically conditional small-model discovery delegation using a user-owned priced model inventory.
+- [x] Approximate per-run forecast rejection (NOT a billing cap).
+- [x] Offline routing benchmark with honest character-load comparisons.
+- [ ] Real token accounting for every vendor, model quota visibility, provider adapter matrix and calibrated model competence.
 - [ ] Measured task-based economic router with tool-call overhead, fallback and safety budgets.
 - [ ] Native per-platform subagent spawning, work ownership and reconciliation; no assumed cross-provider access.
 - [ ] Browser/UI/desktop/mobile/WordPress integration tests on disposable demo projects.
