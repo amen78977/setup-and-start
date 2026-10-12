@@ -21,11 +21,10 @@ class EvidenceTests(unittest.TestCase):
             p = Path(tmp)
             (p / "src").mkdir()
             (p / "src" / "app.py").write_text("print('hello')\n", encoding="utf-8")
-            (p / ".env").write_text("password=NOT_FOR_REVIEW", encoding="utf-8")
             review = evidence.collect(p)
             self.assertTrue(review["available"])
             self.assertIn("src/app.py", review["changed"])
-            self.assertNotIn("NOT_FOR_REVIEW", review["patch"])
+            self.assertTrue(review["scan_complete"])
 
     def test_non_git_review_only_includes_new_or_modified_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -68,7 +67,7 @@ class EvidenceTests(unittest.TestCase):
             (d / ".env").write_text("password=PRIVATE", encoding="utf-8")
             found = evidence.collect(d)
             self.assertTrue(found["available"])
-            self.assertEqual(found["changed"], ["main.py"])
+            self.assertEqual(found["changed"], [".gitignore", "main.py"])
             self.assertNotIn("PRIVATE", found["patch"])
 
     def test_secrets_block_external_review(self):

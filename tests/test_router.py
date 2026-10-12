@@ -64,9 +64,9 @@ class RoutingTests(unittest.TestCase):
                 calls.append(cmd)
                 if cmd[0] == "claude":
                     return subprocess.CompletedProcess(cmd, 0, '{"approved":true,"issues":[]}', "")
-                return subprocess.CompletedProcess(cmd, 0, "OK", "")
+                return subprocess.CompletedProcess(cmd, 0, "Ran 1 test in 0.01s\nOK", "")
             with patch.object(router, "choose_agent", side_effect=["codex", "claude"]), patch.object(router, "execute", side_effect=fake_execute), patch.object(router.evidence, "collect", side_effect=[
-                {"available": False, "reason": "No changes initially", "changed": [], "patch": ""},
+                {"available": False, "scan_complete": True, "reason": "No changes initially", "changed": [], "patch": ""},
                 {"available": True, "reason": "Changed in build", "changed": ["src.py"],
                  "patch": "+ def feature(): pass", "sha256": "fixture"}
             ]):

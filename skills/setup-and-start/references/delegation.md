@@ -9,7 +9,25 @@ Prefer native subagents when the runtime exposes them; a markdown skill alone ca
 - If a priced explicit model inventory is present, the local runner may delegate one bounded, advisory discovery step to a cheaper agent automatically on nontrivial tasks. Other CLIs and their credentials must already exist. This is not general-purpose native parallel subagent execution.
 - With `router.py models "<task>" --policy models.json --mode economy` an **explicit user-configured** model inventory is scored by role/complexity and USD-per-million token estimates. The heuristic strength scores are **user assertions**, not capability benchmarks; unknown rates are never treated as free.
 - To let `run` choose model IDs, pass `--model-policy /path/to/models.json --mode economy`. No provider credentials, model subscriptions, prices or quotas are provisioned. Without a policy, inherit native CLI defaults.
-- If only one CLI exists, the optional runner completes a builder pass but marks result **unverified** rather than faking review.
+- With a model policy, the runner prefers a separate provider for review and falls back to a different configured model on the same CLI in a fresh invocation. It never selects the builder's exact agent/model pair as the fallback reviewer. Without an eligible reviewer, tests passing remain explicitly unreviewed.
+
+`economy` minimizes estimated price among qualified models. `balanced` ranks
+estimated price divided by user-declared strength, allowing a modest premium for
+quality. `quality` prioritizes strength. These are transparent heuristics, not
+measured competence. Structured Codex turn and OpenCode step counters are summed;
+explicit cumulative counters are used once. Unknown usage remains unknown.
+
+Repair findings are retained in checkpoints so `--resume` receives the current
+diagnosis, rather than restarting without failure context. Repair prompts replace
+stale findings on each attempt instead of accumulating every previous log.
+
+With a model inventory, failed attempts automatically use a strictly stronger
+eligible build model on the same CLI when available. One candidate per strength
+level forms a bounded ladder; attempts and timeouts remain unchanged. The
+reviewer model is excluded. The dry-run shows the ladder and the forecast includes
+its highest configured price. Use `--no-escalation` to keep the initial builder.
+This relies on user-declared strength, not live model evaluation. Review is
+deferred until functional checks pass to avoid paying to review known failures.
 
 ### Optional executable path
 

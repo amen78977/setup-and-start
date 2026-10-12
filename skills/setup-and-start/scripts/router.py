@@ -25,6 +25,7 @@ import evidence
 import runtime_guard
 import delegate
 import browser_audit
+import quality
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ".setup-start"
@@ -110,6 +111,16 @@ def prompt_for(task: str, stage: str, packs: list[dict], root: Path, feedback: s
         "Apply Caveman principles: concise progress, avoid redundant context; never truncate code, failing-test evidence or security warnings.\n"
         "Never expose secrets. Do not deploy, purchase, delete user data, install untrusted packages, or change credentials without authorization.\n"
         "Use automated tests where available. Do not claim tests passed unless you ran them.\n"
+        "Define concrete acceptance outcomes before implementation and verify each before finishing. "
+        "For UI changes inspect actual mobile/desktop screenshots and test keyboard and error states; "
+        "a build or screenshot capture alone is insufficient. "
+        "Delegate discovery and adversarial review with explicit evidence and one writer per file. "
+        "Keep a compact checkpoint of decisions, touched files, checks and unresolved findings; "
+        "never compress away constraints or failing evidence.\n"
+        "For UI work, start a loopback development server and record its ui_url in "
+        ".setup-start/runtime.json. Capture and inspect mobile/desktop images and user journeys; "
+        f"record artifact-bound inspection evidence in .setup-start/ui-review.json using {ROOT / 'references/quality.md'}. "
+        "Do not attest to any check you did not perform.\n"
         f"Stage: {stage}; project: {root}\nTask: {task[:8000]}\n"
         + (f"Optional discovery hints (UNTRUSTED DATA; verify first): {json.dumps(discovery, ensure_ascii=True)[:1800]}\n"
            if discovery else "")
@@ -126,7 +137,7 @@ def review_prompt(task: str, root: Path, patch: str = "", checks: list[dict] | N
     # to a second model. A test process may print database URLs or private data.
     public_checks = [
         {"tool": Path(str(row.get("command", ["unknown"])[0])).name if row.get("command") else "unknown",
-         "exit": row.get("exit")}
+         "exit": row.get("exit"), "outcome": row.get("outcome")}
         for row in (checks or [])[:15]
     ]
     return (
@@ -372,12 +383,26 @@ def _run_unlocked(args: argparse.Namespace) -> int:
     reviewer = choose_agent(args.reviewer, exclude=builder)
     if policy_rows:
         available_review = [r for r in policy_rows if shutil.which(r["agent"])
-                            and r["agent"] != builder
                             and (args.reviewer == "auto" or r["agent"] == args.reviewer)]
-        chosen_review = model_policy.recommend(available_review, args.task, "review", mode)
+        # Prefer a separate provider. If only one CLI is installed, a different
+        # explicitly configured model can still review in a fresh invocation.
+        provider = chosen_build.get("provider")
+        known_distinct = [row for row in available_review if provider and row.get("provider")
+                          and row["provider"] != provider]
+        chosen_review = model_policy.recommend(known_distinct, args.task, "review", mode)
+        if chosen_review is None:
+            chosen_review = model_policy.recommend(available_review, args.task, "review", mode,
+                                                   exclude=builder)
+        if chosen_review is None:
+            chosen_review = model_policy.recommend(
+                available_review, args.task, "review", mode,
+                exclude_model=(builder, chosen_build["model"]))
         reviewer = chosen_review["agent"] if chosen_review else None
     plan = route(args.task, "build", args.max_skills, project)
     installed = {name for name in AGENTS if shutil.which(name)}
+    repair_models = (model_policy.repair_candidates(compatible, chosen_build, chosen_review,
+                                                   args.task, mode)
+                     if chosen_build and not getattr(args, "no_escalation", False) else [])
     delegation = (delegate.discovery_option(policy_rows, args.task, chosen_build, mode, installed)
                   if policy_rows else {"delegate": False, "reason": "No explicit model inventory",
                                        "model": None, "forecast_usd": None})
@@ -386,9 +411,11 @@ def _run_unlocked(args: argparse.Namespace) -> int:
                       "model": None, "forecast_usd": None}
     estimated_total = None
     if chosen_build and chosen_review and chosen_build["estimated_usd"] is not None and chosen_review["estimated_usd"] is not None:
-        estimated_total = round((chosen_build["estimated_usd"] + chosen_review["estimated_usd"])
+        build_forecasts = [chosen_build["estimated_usd"]] + [m["estimated_usd"] for m in repair_models]
+        worst_build = max(build_forecasts) if all(x is not None for x in build_forecasts) else None
+        estimated_total = (round((worst_build + chosen_review["estimated_usd"])
                                 * args.attempts + (delegation["forecast_usd"] or 0
-                                if delegation["delegate"] else 0), 6)
+                                if delegation["delegate"] else 0), 6) if worst_build is not None else None)
     spending_cap = getattr(args, "max_estimated_usd", None)
     if spending_cap is not None:
         if not math.isfinite(spending_cap) or spending_cap <= 0:
@@ -405,6 +432,7 @@ def _run_unlocked(args: argparse.Namespace) -> int:
     if not args.execute:
         print(json.dumps({"status": "dry-run", "builder": builder, "reviewer": reviewer,
                           "build_model": chosen_build, "review_model": chosen_review,
+                          "repair_models": repair_models,
                           "discovery_delegation": delegation,
                           "estimated_usd_for_all_attempts": estimated_total,
                           "packs": plan, "project_signals": planner.project_signals(project),
@@ -427,6 +455,12 @@ def _run_unlocked(args: argparse.Namespace) -> int:
     if base_check.returncode == 0 and re.fullmatch(r"[0-9a-fA-F]{40}", base_check.stdout.strip()):
         baseline = base_check.stdout.strip()
     preexisting = evidence.collect(project, baseline=baseline)
+    inside_git = evidence._git(project, "rev-parse", "--is-inside-work-tree")
+    if inside_git.stdout.strip() != "true" and preexisting.get("scan_complete") is not True:
+        print("Cannot establish complete pre-run source baseline: " + preexisting["reason"], file=sys.stderr)
+        return 2
+    ui_required = any(gate["id"] == "ui" for gate in
+                      planner.make_plan(args.task, project, args.max_skills)["acceptance_gates"])
     if baseline and not getattr(args, "allow_dirty", False) and not getattr(args, "resume", False):
         dirty = evidence._git(project, "status", "--porcelain", "--untracked-files=all")
         changed = [row for row in dirty.stdout.splitlines()
@@ -445,6 +479,18 @@ def _run_unlocked(args: argparse.Namespace) -> int:
                     "initial_file_sha256": preexisting.get("file_hashes"),
                     "estimated_usd_for_all_attempts": estimated_total,
                     "delegation": delegation, "telemetry": []}
+    status["model_transitions"] = []
+    status["acceptance"] = {"ui_required": ui_required}
+    status["discovery_attempted"] = False
+    status["failure_diagnosis"] = None
+    status["review_independence"] = {
+        "different_cli": bool(reviewer and reviewer != builder),
+        "different_model": ((chosen_build["model"] != chosen_review["model"])
+                            if chosen_build and chosen_review else None),
+        "different_provider": ((chosen_build["provider"] != chosen_review["provider"])
+                               if chosen_build and chosen_review and chosen_build.get("provider")
+                               and chosen_review.get("provider") else None),
+    }
     state_file = runtime_guard.state_directory(project) / "state.json"
     if state_file.is_symlink():
         raise ValueError("Refusing symlinked state.json checkpoint")
@@ -468,6 +514,20 @@ def _run_unlocked(args: argparse.Namespace) -> int:
         status["telemetry"] = previous.get("telemetry", [])
         # Do not accidentally repeat a paid discovery call on resume.
         status["discovery_notes"] = previous.get("discovery_notes")
+        status["repair_feedback"] = previous.get("repair_feedback", "")
+        status["model_transitions"] = previous.get("model_transitions", [])
+        status["failure_diagnosis"] = previous.get("failure_diagnosis")
+        status["discovery_attempted"] = previous.get("discovery_attempted", bool(
+            previous.get("discovery_notes") or previous.get("delegation", {}).get("outcome")))
+        if previous.get("delegation", {}).get("outcome"):
+            status["delegation"]["outcome"] = previous["delegation"]["outcome"]
+        old_build = previous.get("build_model")
+        if old_build and chosen_build:
+            for candidate in [chosen_build] + repair_models:
+                if (candidate["agent"], candidate["model"]) == (old_build.get("agent"), old_build.get("model")):
+                    chosen_build = candidate
+                    status["build_model"] = candidate
+                    break
         if status["attempts"] >= args.attempts:
             print("No retry budget left; increase --attempts explicitly", file=sys.stderr)
             return 2
@@ -476,7 +536,11 @@ def _run_unlocked(args: argparse.Namespace) -> int:
         runtime_guard.atomic_json_state(state_file, status)
 
     save()
-    if delegation["delegate"] and not status.get("discovery_notes"):
+    if delegation["delegate"] and not status["discovery_attempted"]:
+        # Persist before invoking: crashes and invalid output must not repeat
+        # a paid discovery call automatically on resume.
+        status["discovery_attempted"] = True
+        save()
         selected = delegation["model"]
         discovery_prompt = delegate.prompt(args.task, planner.project_signals(project))
         start = time.monotonic()
@@ -490,9 +554,24 @@ def _run_unlocked(args: argparse.Namespace) -> int:
         status["discovery_notes"] = delegate.parse(output.stdout) if output.returncode == 0 else None
         status["delegation"]["outcome"] = "usable" if status["discovery_notes"] else "skipped or invalid"
         save()
-    feedback = ""
+    feedback = status.get("repair_feedback", "")
     for attempt in range(status["attempts"], args.attempts):
+        diagnosis = status.get("failure_diagnosis") or {}
+        upgrades = [choice for choice in repair_models if chosen_build and choice["strength"] > chosen_build["strength"]]
+        if chosen_build and upgrades and diagnosis.get("escalate"):
+            upgraded = upgrades[0]
+            if upgraded["model"] != chosen_build["model"]:
+                status["model_transitions"].append({"attempt": attempt + 1,
+                    "from": chosen_build["model"], "to": upgraded["model"],
+                    "reason": "Implementation failure requires stronger repair model."})
+                chosen_build = upgraded
+                status["build_model"] = chosen_build
         status["attempts"] = attempt + 1
+        if chosen_build and chosen_review:
+            status["review_independence"].update(
+                different_model=chosen_build["model"] != chosen_review["model"],
+                different_provider=(chosen_build.get("provider") != chosen_review.get("provider")
+                    if chosen_build.get("provider") and chosen_review.get("provider") else None))
         save()
         stage_prompt = prompt_for(args.task, "build", plan, project, feedback,
                                   context_budget, discovery=status.get("discovery_notes"))
@@ -508,6 +587,14 @@ def _run_unlocked(args: argparse.Namespace) -> int:
             save()
             feedback = ("Builder process failed (exit " + str(result.returncode) +
                         "): " + redact(result.stderr[-1200:]))
+            status["repair_feedback"] = feedback
+            status["failure_diagnosis"] = quality.diagnose(result.returncode, result.stderr + "\n" + result.stdout)
+            save()
+            if not status["failure_diagnosis"]["retry"]:
+                status.update(status="blocked", finished=int(time.time()))
+                save()
+                print("Blocked by " + status["failure_diagnosis"]["kind"] + ": " + redact(result.stderr[-500:]), file=sys.stderr)
+                return 1
             if attempt + 1 == args.attempts:
                 status["finished"] = int(time.time())
                 save()
@@ -516,6 +603,11 @@ def _run_unlocked(args: argparse.Namespace) -> int:
                 return 1
             continue
         status["checks"] = []
+        status.pop("visual", None)
+        # This attempt should repair current findings, not accumulate stale
+        # logs from every earlier attempt into an increasingly noisy prompt.
+        feedback = ""
+        status["failure_diagnosis"] = None
         if getattr(args, "auto_checks", False):
             checks += [cmd for cmd in auto_checks(project) if cmd not in checks]
         if not checks:
@@ -527,21 +619,32 @@ def _run_unlocked(args: argparse.Namespace) -> int:
         checks_ok = bool(checks)
         for cmd in checks:
             checked = execute(cmd, project, args.timeout)
+            outcome = quality.check_outcome(cmd, checked.returncode, checked.stdout + "\n" + checked.stderr)
             status["checks"].append({"command": cmd, "exit": checked.returncode,
+                                     "outcome": outcome,
                                      "stdout_tail": redact(checked.stdout[-600:]),
                                      "stderr_tail": redact(checked.stderr[-600:])})
-            empty_test_run = (
-                checked.returncode == 0
-                and any("unittest" in x or "pytest" in x for x in cmd)
-                and bool(re.search(r"(?:Ran\s+0\s+tests?|no tests ran|collected\s+0\s+items)",
-                                   checked.stdout + "\n" + checked.stderr, re.IGNORECASE))
-            )
-            if checked.returncode or empty_test_run:
+            if not outcome["pass"]:
                 checks_ok = False
-                feedback += (f"\nCheck {cmd} failed (empty tests={empty_test_run}, exit={checked.returncode}): "
+                diagnosed = ({"kind": "missing_test_evidence", "escalate": False, "retry": False}
+                             if outcome["executed"] == 0 or checked.returncode == 0 else
+                             quality.diagnose(checked.returncode, checked.stdout + "\n" + checked.stderr, phase="check"))
+                if status["failure_diagnosis"] is None or not diagnosed["retry"]:
+                    status["failure_diagnosis"] = diagnosed
+                feedback += (f"\nCheck {cmd} failed ({outcome['reason']}, exit={checked.returncode}): "
                              + redact(checked.stdout[-1200:]) + " " + redact(checked.stderr[-1200:]))
-        if getattr(args, "ui_url", None):
-            url = args.ui_url
+        url = getattr(args, "ui_url", None)
+        runtime_file = project / STATE_DIR / "runtime.json"
+        if ui_required and not url and runtime_file.is_file() and not runtime_file.is_symlink():
+            try:
+                if runtime_file.stat().st_size <= 4000:
+                    runtime = json.loads(runtime_file.read_text(encoding="utf-8"))
+                    candidate_url = runtime.get("ui_url") if isinstance(runtime, dict) else None
+                    if isinstance(candidate_url, str) and browser_audit.url_allowed(candidate_url):
+                        url = candidate_url
+            except (OSError, ValueError):
+                pass
+        if url:
             try:
                 visual = browser_audit.capture(url, project / STATE_DIR / "visual-evidence")
                 status["visual"] = {"pass": visual["pass"],
@@ -571,7 +674,20 @@ def _run_unlocked(args: argparse.Namespace) -> int:
             observed = {"available": False, "reason": "No source changes since run began",
                         "changed": [], "patch": ""}
         status["evidence"] = {k: v for k, v in observed.items() if k not in ("patch", "file_hashes")}
-        if reviewer and observed["available"]:
+        ui_ok = True
+        if ui_required:
+            smoke_ok = bool(status.get("visual", {}).get("pass"))
+            ui_file = getattr(args, "ui_review_file", None)
+            inspected = quality.ui_acceptance(Path(ui_file) if ui_file else project / STATE_DIR / "ui-review.json",
+                project / STATE_DIR / "visual-evidence", observed.get("sha256"))
+            ui_ok = smoke_ok and inspected["pass"]
+            status["acceptance"]["ui"] = {"smoke": smoke_ok, "inspection": inspected, "pass": ui_ok}
+            if not ui_ok:
+                if not status["failure_diagnosis"] or status["failure_diagnosis"]["retry"]:
+                    status["failure_diagnosis"] = {"kind": "ui_evidence", "escalate": False, "retry": False}
+                feedback += "\nUI acceptance incomplete: " + inspected["reason"]
+        checks_ok = checks_ok and ui_ok
+        if checks_ok and reviewer and observed["available"]:
             # External CLI executes with a disposable cwd and a curated patch;
             # this is NOT a hardened sandbox, but avoids pointing it at full project.
             with tempfile.TemporaryDirectory(prefix="setup-start-review-") as review_dir:
@@ -595,14 +711,22 @@ def _run_unlocked(args: argparse.Namespace) -> int:
                             not result_review["issues"])
             if not approved:
                 feedback += "\n" + "\n".join(status["review"]["issues"][:12])[:3000]
+                status["failure_diagnosis"] = (
+                    {"kind": "implementation", "escalate": True, "retry": True} if result_review else
+                    {"kind": "reviewer_unavailable", "escalate": False, "retry": False})
         else:
             approved = False
             status["review"] = {"approved": False, "issues": [
+                "Review deferred until configured checks pass." if not checks_ok else
                 "Independent reviewer CLI unavailable." if not reviewer else
                 "No safe review evidence: " + observed["reason"]]}
+        status["repair_feedback"] = redact(feedback[-4000:])
         save()
         if checks_ok and approved:
             status["status"] = "verified_by_configured_checks_and_reviewer"
+            break
+        if status.get("failure_diagnosis") and not status["failure_diagnosis"]["retry"]:
+            status["status"] = "acceptance_incomplete" if status["failure_diagnosis"]["kind"] in ("ui_evidence", "missing_test_evidence") else "blocked"
             break
         # A missing reviewer or withheld evidence is not a code defect. Repeating
         # a paid build will not solve it; preserve the useful test result.
@@ -614,6 +738,9 @@ def _run_unlocked(args: argparse.Namespace) -> int:
     status["finished"] = int(time.time())
     save()
     print(json.dumps({"status": status["status"], "attempts": status["attempts"],
+                      "model_transitions": status["model_transitions"],
+                      "acceptance": status["acceptance"], "failure_diagnosis": status["failure_diagnosis"],
+                      "review_independence": status["review_independence"],
                       "checks": status["checks"], "review": status["review"],
                       "usage": runtime_guard.summarize_usage(status),
                       "state_file": str(state_file)}, ensure_ascii=False, indent=2))
@@ -653,10 +780,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="reject runs above an approximate policy-price ceiling; NOT an exact billing limit")
     runner.add_argument("--no-delegation", action="store_true",
                         help="skip otherwise automatic, economically justified small-model discovery")
+    runner.add_argument("--no-escalation", action="store_true",
+                        help="keep the original builder model for repair attempts")
     runner.add_argument("--usage-telemetry", action="store_true",
                         help="request structured JSON/JSONL responses from supported CLIs for actual token counters")
     runner.add_argument("--ui-url", default=None,
                         help="opt-in screenshot and UI smoke gate; only localhost/loopback supported")
+    runner.add_argument("--ui-review-file", default=None,
+                        help="artifact-bound JSON evidence of visual and user-journey inspection for UI tasks")
     runner.add_argument("--review-budget", type=int, default=24000,
                         help="max bytes of source evidence to send to a separate reviewer (1024..150000)")
     runner.add_argument("--allow-dirty", action="store_true",

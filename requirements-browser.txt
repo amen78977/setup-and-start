@@ -1,0 +1,2 @@
+# Optional real-browser validation. The core runner remains dependency-free.
+playwright==1.62.0

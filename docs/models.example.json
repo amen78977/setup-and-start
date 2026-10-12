@@ -3,6 +3,7 @@
   "models": [
     {
       "agent": "codex",
+      "provider": null,
       "name": "your-codex-model-id",
       "strength": 3,
       "input_per_million": null,
@@ -12,6 +13,7 @@
     },
     {
       "agent": "claude",
+      "provider": null,
       "name": "your-claude-model-id",
       "strength": 4,
       "input_per_million": null,
@@ -21,6 +23,7 @@
     },
     {
       "agent": "opencode",
+      "provider": null,
       "name": "your-opencode-model-id",
       "strength": 2,
       "input_per_million": null,

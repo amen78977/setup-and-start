@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 from pathlib import Path
 import tempfile
 from urllib.parse import urlsplit
@@ -59,7 +60,12 @@ def capture(url: str, output: Path, *, remote: bool = False, timeout_ms: int = 1
         raise ValueError("Refusing symlinked visual evidence directory")
     report = {"url": url, "viewports": {}, "note": "Screenshots require visual review; this is not a full WCAG audit."}
     with sync_playwright() as browser_api:
-        browser = browser_api.chromium.launch(headless=True)
+        launch_options = {"headless": True}
+        if not Path(browser_api.chromium.executable_path).is_file():
+            system_browser = shutil.which("chromium") or shutil.which("chromium-browser")
+            if system_browser:
+                launch_options["executable_path"] = system_browser
+        browser = browser_api.chromium.launch(**launch_options)
         try:
             for key, (width, height) in VIEWPORTS.items():
                 page = browser.new_page(viewport={"width": width, "height": height},

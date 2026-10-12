@@ -125,6 +125,14 @@ def select(task: str, stage: str = "auto", limit: int = 3, project: Path | None 
         scores.append((score, pack, hits))
     scores.sort(key=lambda row: (-row[0], row[1]["id"]))
     chosen = scores[:limit]
+    # Risk gates follow the operation, even when the user never says security.
+    risky = matched_terms(task, ["auth", "authentication", "authorization", "oauth",
+                                "payment", "payments", "permissions", "مصادقة",
+                                "صلاحيات", "مدفوعات", "دفع"])
+    if risky and stage in ("plan", "test", "review"):
+        security = next(p for p in all_packs if p["id"] == "security")
+        if not any(p["id"] == "security" for _, p, _ in chosen):
+            chosen = [(100, security, risky)] + chosen[:max(0, limit - 1)]
     # Verification is an invariant, not something the user must remember to
     # request explicitly. Reserve one slot in test/review stages for it.
     if stage in ("test", "review") and not any(p["id"] == "verification" for _, p, _ in chosen):
@@ -151,8 +159,28 @@ def make_plan(task: str, project: Path | None = None, limit: int = 3) -> dict:
         # of intended guidance, not evidence that work was already done.
         phases.append({"stage": stage, "packs": [p["id"] for p in packs],
                        "references": [p["reference"] for p in packs]})
+    ui = any("frontend" in phase["packs"] for phase in phases)
+    gates = [
+        {"id": "functional", "required": True,
+         "evidence": "Existing tests plus a representative user acceptance check; zero tests is failure."},
+        {"id": "review", "required": True,
+         "evidence": "Fresh reviewer, complete changed source, and resolved findings; unavailable is reported."},
+    ]
+    if ui:
+        gates.append({"id": "ui", "required": True,
+                      "evidence": "Mobile/desktop screenshots inspected, keyboard journey, loading/error/empty states, RTL when requested."})
+    if any("security" in phase["packs"] for phase in phases):
+        gates.append({"id": "security", "required": True,
+                      "evidence": "Threat boundaries, negative authorization cases, input validation and sensitive-data handling reviewed."})
     return {"task": task, "project": str(project.resolve()) if project else None,
             "signals": signals, "phases": phases, "max_loaded_per_phase": limit,
+            "acceptance_gates": gates,
+            "delegation_policy": {
+                "default": "Use available native agents for independent bounded tasks when benefit exceeds overhead.",
+                "ownership": "One writer per file; delegate read-only discovery/review first.",
+                "fallback": "Work inline when agent capability or pricing is unavailable.",
+                "integration": "Verify every delegated result before accepting it.",
+            },
             "quality_gates": ["actual tests", "independent diff review when available",
                               "responsive and accessibility checks for UI",
                               "explicit evidence and remaining risks"]}
@@ -164,22 +192,26 @@ def read_guidance(selected: list[dict], max_chars: int = 4800) -> str:
         raise ValueError("context budget must be 256..16000 characters")
     chunks = []
     remaining = max_chars
-    for entry in selected:
+    # Mandatory verification must survive a large specialist reference.
+    ordered = sorted(selected, key=lambda entry: entry["id"] != "verification")
+    for entry in ordered:
         rel = entry["reference"]
         target = (ROOT / rel).resolve()
         if not target.is_relative_to(ROOT) or not target.is_file():
             raise ValueError("Untrusted registry reference: " + rel)
         data = target.read_text(encoding="utf-8")
         prefix = f"\n## {entry['id']}\n"
-        allowed = max(0, remaining - len(prefix))
+        separator = "\n" if chunks else ""
+        allowed = max(0, remaining - len(prefix) - len(separator))
         if not allowed:
             break
         # Never silently truncate guidance. If it won't fit, skip and disclose.
         if len(data) > allowed:
             notice = prefix + "[not loaded: exceeds remaining context budget]"
-            if len(notice) <= remaining:
+            if len(notice) + len(separator) <= remaining:
                 chunks.append(notice)
-            break
+                remaining -= len(notice) + len(separator)
+            continue
         chunks.append(prefix + data)
-        remaining -= len(prefix) + len(data)
+        remaining -= len(prefix) + len(data) + len(separator)
     return "\n".join(chunks)

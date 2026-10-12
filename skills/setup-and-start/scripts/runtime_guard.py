@@ -111,7 +111,10 @@ def _usage_from_mapping(value: dict) -> dict | None:
 def usage_from_output(output: str) -> dict | None:
     """Extract final usage counters from JSON/JSONL; never guess from text size."""
     entries = []
-    for line in output.splitlines()[-150:]:
+    turns = []
+    steps = {}
+    cumulative = None
+    for line in output.splitlines():
         line = line.strip()
         if not (line.startswith("{") and line.endswith("}")):
             continue
@@ -124,6 +127,11 @@ def usage_from_output(output: str) -> dict | None:
         direct = _usage_from_mapping(item)
         if direct:
             entries.append(direct)
+            if item.get("type") == "turn.completed":
+                turns.append(direct)
+            info = item.get("info")
+            if isinstance(info, dict) and isinstance(info.get("total_token_usage"), dict):
+                cumulative = direct
         # Codex token_count events: .type == turn.completed, .usage;
         # event usage can also be nested in .data.
         data = item.get("data")
@@ -141,11 +149,19 @@ def usage_from_output(output: str) -> dict | None:
             tokens = part["tokens"]
             ins, outs = tokens.get("input"), tokens.get("output")
             if type(ins) is int and type(outs) is int and 0 <= ins < 10**9 and 0 <= outs < 10**9:
-                entries.append({"input_tokens": ins, "output_tokens": outs,
-                                "total_tokens": ins + outs})
-    # Token events can contain rolling cumulative usage; take the last rather
-    # than summing and double-counting. Multiple CLI invocations are summed by
-    # the caller, not here.
+                counter = {"input_tokens": ins, "output_tokens": outs,
+                           "total_tokens": ins + outs}
+                entries.append(counter)
+                if item.get("type") == "step_finish":
+                    steps[part.get("id", len(steps))] = counter
+    # Explicit cumulative counters supersede individual turns. Codex turns
+    # and OpenCode completed steps are independent counters, not rolling totals.
+    if cumulative is not None:
+        return cumulative
+    independent = turns or list(steps.values())
+    if independent:
+        return {key: sum(row[key] for row in independent)
+                for key in ("input_tokens", "output_tokens", "total_tokens")}
     return entries[-1] if entries else None
 
 

@@ -33,6 +33,95 @@ else:
 
 
 class WorkflowIntegrationTest(unittest.TestCase):
+    def test_real_subprocess_repair_escalation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            fake = project / "fake_cli.py"
+            fake.write_text(
+                "import sys\nmodel = sys.argv.pop(1)\n"
+                "if model == 'initial':\n"
+                "    print('Needs stronger model', file=sys.stderr)\n"
+                "    raise SystemExit(1)\n" + FAKE_AGENT)
+            check = project / "check.py"
+            check.write_text("import app\nassert app.add(2, 3) == 5\n")
+            policy = project / "models.json"
+            policy.write_text(json.dumps({"models": [
+                {"agent": "codex", "name": "initial", "strength": 3, "roles": ["build"],
+                 "input_per_million": 1, "output_per_million": 1},
+                {"agent": "codex", "name": "strong", "strength": 4, "roles": ["build"],
+                 "input_per_million": 2, "output_per_million": 2},
+                {"agent": "claude", "name": "review", "strength": 4, "roles": ["review"]}]}))
+            args = argparse.Namespace(project=directory, task="Implement API helper",
+                agent="auto", reviewer="auto", attempts=2, timeout=40, max_skills=3,
+                check=[f'"{sys.executable}" "{check}"'], execute=True,
+                model_policy=str(policy), mode="economy", no_delegation=True)
+
+            def command(agent, prompt, role="build", override_model=None, structured=False):
+                return [sys.executable, str(fake), override_model, role, prompt]
+
+            with patch.object(router, "choose_agent", side_effect=["codex", "claude"]), \
+                 patch.object(router.shutil, "which", return_value="installed"), \
+                 patch.object(router, "agent_command", side_effect=command):
+                self.assertEqual(router.run(args), 0)
+            state = json.loads((project / ".setup-start/state.json").read_text())
+            self.assertEqual(state["build_model"]["model"], "strong")
+            self.assertEqual(state["attempts"], 2)
+            self.assertEqual([row["role"] for row in state["telemetry"]],
+                             ["build", "build", "review"])
+
+    def test_single_cli_distinct_model_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            fake = project / "fake_cli.py"
+            fake.write_text(FAKE_AGENT, encoding="utf-8")
+            check = project / "check.py"
+            check.write_text("import app\nassert app.add(2, 3) == 5\n")
+            policy = project / "models.json"
+            policy.write_text(json.dumps({"models": [
+                {"agent": "codex", "name": "build-model", "strength": 4, "roles": ["build"]},
+                {"agent": "codex", "name": "review-model", "strength": 4, "roles": ["review"]}]}))
+            args = argparse.Namespace(project=directory, task="Implement API helper",
+                agent="auto", reviewer="auto", attempts=1, timeout=40, max_skills=3,
+                check=[f'"{sys.executable}" "{check}"'], execute=True, model_policy=str(policy))
+            models = []
+
+            def command(agent, prompt, role="build", override_model=None, structured=False):
+                models.append((role, override_model))
+                return [sys.executable, str(fake), role, prompt]
+
+            with patch.object(router, "choose_agent", side_effect=["codex", None]), \
+                 patch.object(router.shutil, "which", side_effect=lambda name: "/fake/codex" if name == "codex" else None), \
+                 patch.object(router, "agent_command", side_effect=command):
+                self.assertEqual(router.run(args), 0)
+            self.assertEqual(models, [("build", "build-model"), ("review", "review-model")])
+
+    def test_resume_preserves_repair_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            fake = project / "fake_cli.py"
+            fake.write_text(FAKE_AGENT, encoding="utf-8")
+            check = project / "check.py"
+            check.write_text("raise AssertionError('acceptance sentinel')\n")
+            args = argparse.Namespace(project=directory, task="Implement API helper",
+                agent="auto", reviewer="auto", attempts=1, timeout=40, max_skills=3,
+                check=[f'"{sys.executable}" "{check}"'], execute=True)
+            prompts = []
+
+            def command(agent, prompt, role="build", override_model=None, structured=False):
+                if role == "build":
+                    prompts.append(prompt)
+                return [sys.executable, str(fake), role, prompt]
+
+            with patch.object(router, "choose_agent", side_effect=["codex", "claude"]), \
+                 patch.object(router, "agent_command", side_effect=command):
+                self.assertEqual(router.run(args), 1)
+            args.resume, args.attempts = True, 2
+            check.write_text("import app\nassert app.add(2, 3) == 5\n")
+            with patch.object(router, "choose_agent", side_effect=["codex", "claude"]), \
+                 patch.object(router, "agent_command", side_effect=command):
+                self.assertEqual(router.run(args), 0)
+            self.assertIn("acceptance sentinel", prompts[1])
+
     def test_build_check_independent_review_happy_path(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
@@ -106,7 +195,7 @@ class WorkflowIntegrationTest(unittest.TestCase):
                 result = router.run(args)
             state = json.loads((project / ".setup-start" / "state.json").read_text(encoding="utf-8"))
             self.assertEqual(result, 1)
-            self.assertEqual(state["status"], "needs_attention")
+            self.assertEqual(state["status"], "acceptance_incomplete")
             self.assertTrue(any("Ran 0 tests" in row["stderr_tail"] for row in state["checks"]))
 
 

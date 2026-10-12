@@ -35,6 +35,9 @@ def load_policy(path: Path) -> list[dict]:
                 raise ValueError("Invalid model price; use USD per million tokens")
         if type(row.get("available", True)) is not bool:
             raise ValueError("available must be boolean")
+        provider = row.get("provider")
+        if provider is not None and (not isinstance(provider, str) or not SAFE_ID.fullmatch(provider)):
+            raise ValueError("Invalid optional provider identity")
     return entries
 
 
@@ -80,14 +83,34 @@ def estimate_cost(row: dict, input_tokens: int = 10000, output_tokens: int = 300
     return round((a * input_tokens + b * output_tokens) / 1_000_000, 6)
 
 
+def repair_candidates(models: list[dict], current: dict, reviewer: dict | None,
+                      task: str, mode: str) -> list[dict]:
+    """A bounded same-CLI escalation ladder; never reuse the reviewer model."""
+    eligible = [row for row in models if row["agent"] == current["agent"]
+                and row["strength"] > current["strength"]
+                and (reviewer is None or (row["agent"], row["name"]) !=
+                     (reviewer["agent"], reviewer["model"]))]
+    result = []
+    # One preferred model per strength level. Only strict upgrades qualify.
+    for strength in sorted({row["strength"] for row in eligible}):
+        choice = recommend([row for row in eligible if row["strength"] == strength],
+                           task, "build", mode)
+        if choice:
+            result.append(choice)
+    return result
+
+
 def recommend(models: list[dict], task: str, role: str, mode: str = "balanced",
-              agent: str | None = None, exclude: str | None = None) -> dict | None:
+              agent: str | None = None, exclude: str | None = None,
+              exclude_model: tuple[str, str] | None = None) -> dict | None:
     if mode not in MODES or role not in ROLES:
         raise ValueError("Invalid mode or role")
     candidates = []
     requested = complexity(task, role) + (1 if mode == "quality" else 0)
     for row in models:
         if row.get("available", True) is False or row["agent"] == exclude:
+            continue
+        if exclude_model == (row["agent"], row["name"]):
             continue
         if agent and row["agent"] != agent:
             continue
@@ -100,13 +123,18 @@ def recommend(models: list[dict], task: str, role: str, mode: str = "balanced",
         price = cost if cost is not None else float("inf")
         if mode == "quality":
             key = (-row["strength"], price, row["agent"], row["name"])
+        elif mode == "economy":
+            key = (price, row["strength"], row["agent"], row["name"])
         else:
-            key = (price, row["strength"] if mode == "economy" else -row["strength"],
+            # Strength remains a user-declared heuristic. Balanced pays a
+            # modest premium for stronger qualified models, unlike economy.
+            key = (price / row["strength"], -row["strength"], price,
                    row["agent"], row["name"])
         candidates.append((key, row, cost))
     if not candidates:
         return None
     _, row, cost = min(candidates, key=lambda c: c[0])
     return {"agent": row["agent"], "model": row["name"], "strength": row["strength"],
+            "provider": row.get("provider"),
             "estimated_usd": cost, "minimum_strength": requested,
             "note": "User-provided rates and strength scores; estimates are not live pricing or benchmarks."}

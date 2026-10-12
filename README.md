@@ -4,7 +4,7 @@
 
 Portable, small-context orchestration skill for **Claude Code, Codex, OpenCode** and other Agent Skills-compatible assistants. It routes software tasks to a maximum of three relevant guidance packs at a time, uses Caveman-style token discipline, and specifies an implementation → tests → independent review → repair workflow.
 
-> **Status: v1.0.0 — stable core release.** The one-entry skill, bounded phase router and opt-in local runner have automated regression and mocked end-to-end coverage. Optional model routing and autonomous CLI workflows remain environment-dependent: this project does **not** raise the model's intrinsic intelligence, guarantee zero bugs, or promise lower cost on every task. Its purpose is to improve coding-agent workflows, **not** compete directly with any app builder.
+> **Status: v1.1.0 — evidence and adaptive repair release.** The one-entry skill, bounded phase router and opt-in local runner have automated regression, subprocess integration and real-browser coverage. Optional model routing and autonomous CLI workflows remain environment-dependent: this project does **not** raise the model's intrinsic intelligence, guarantee zero bugs, or promise lower cost on every task. Its purpose is to improve coding-agent workflows, **not** compete directly with any app builder.
 
 ## Quick start — no Python needed for the skill itself
 
@@ -17,6 +17,57 @@ Run a supported agent and ask: **"Use setup-and-start: build a responsive Arabic
 To install globally for all future projects, append `-g` to the command. To update an existing installation, run the same install command again. **Only one skill must be invoked by the user**; all the bundled specialty reference packs are selected on demand.
 
 ## Local zero-dependency helper (Python >= 3.10)
+
+### Evidence required for completion
+
+Test suites must demonstrate successful executed tests, not an empty or entirely
+skipped/expected-failure run. Check reports retain executed, skipped and expected
+failure counts. Bounded non-Git discovery covers the full tree and refuses partial
+snapshots. External failures such as missing dependencies, access, quotas and
+timeouts stop paid repair with a diagnosis; only implementation failures warrant
+model escalation. Invalid discovery output or interrupted discovery is not
+automatically repeated on resume.
+
+UI tasks require browser smoke and artifact-bound visual/journey inspection,
+documented in [the quality contract](skills/setup-and-start/references/quality.md).
+Agents can register a loopback server in `.setup-start/runtime.json` and evidence
+in `.setup-start/ui-review.json`; CLI overrides are also supported. Incomplete
+inspection produces `acceptance_incomplete`. CLI, model and provider separation
+are reported separately; optional `provider` identities in the model policy let
+the runner prefer a known distinct provider rather than guessing from CLI names.
+
+Real-world savings require [matched task measurements](docs/MEASUREMENT.md).
+`python benchmarks/compare_runs.py trials.json` compares acceptance, observed
+tokens/cost/time and human interventions without replacing unknowns with zero.
+Optional browser CI is pinned by `requirements-browser.txt`; core checks still
+use only Python's standard library.
+
+### Autonomous workflow improvements
+
+The entry skill now includes a decision protocol for working inline, delegating
+bounded work, reviewing high-impact changes and verifying UI journeys. The phase
+plan exposes acceptance gates and file ownership rules. The local runner prefers
+a separate reviewer provider, but can use a distinct configured reviewer model
+on the same CLI when a model inventory is supplied. Review refuses oversized new
+source rather than approving an omitted file. Resume preserves repair findings.
+
+Context packing retains verification first and skips oversized optional packs
+without discarding smaller useful references. Economy and balanced model modes
+now use distinct price/quality rankings. These mechanisms do not establish actual
+cost savings; native parallel workers still depend on the host agent runtime.
+
+With an explicit model policy, unsuccessful attempts can automatically move to
+a stronger build model on the same CLI. The reviewer model is excluded from
+this ladder. `--no-escalation` keeps the initial model. Dry-run output lists
+`repair_models`; the approximate cost ceiling considers the most expensive
+eligible upgrade for all attempts before execution. Unknown upgrade prices
+prevent a priced ceiling from being accepted. This is still a forecast, not a
+billing cap. Transitions are saved in the checkpoint and final report.
+
+Functional checks run before paid review: a failing check goes directly to
+repair. Authentication, permissions and payments reserve security guidance in
+planning/test/review. Changed unsupported files, binaries and new symlinks block
+remote approval and require local review; they are never silently omitted.
 
 Clone/download this repo or install the skill and use its `scripts/router.py` path:
 

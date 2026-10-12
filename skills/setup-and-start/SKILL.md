@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.10+ recommended for the bundled local helper; otherwise follow these instructions manually.
 ---
 
-# Setup & Start — one entry, selective context (v1.0)
+# Setup & Start — one entry, selective context (v1.1)
 
 You are the **orchestrator**, not a huge prompt containing every skill. Work end-to-end after the user gives a task. Never pretend a capability, subagent, CLI, browser, permission or test is available without checking.
 
@@ -19,6 +19,41 @@ You are the **orchestrator**, not a huge prompt containing every skill. Work end
 6. **Verify with evidence**: run relevant lint/typecheck/build/tests. For UI, use the visual-quality loop in `references/frontend.md`; if Playwright is available, run the *optional* localhost `scripts/browser_audit.py`, inspect actual screenshots at mobile/desktop widths, and check keyboard/a11y/RTL. Static test success is not visual success.
 7. **Independent review**: use a different trusted model/provider when worthwhile and available; share bounded diff + exact check outcomes. The bundled CLI runner reviews in a disposable cwd, but **this is NOT a security sandbox**. If errors or missing evidence remain, fix and re-test within a bounded retry budget; otherwise state the blocker explicitly.
 8. **Deliver** the working artifact with location, changed files, commands executed, evidence, failed/skipped checks and remaining risks. Never say "complete, bug-free" without verifiable support. Deploy/publish only within actual permissions.
+
+## Autonomous decision protocol
+
+The user invokes this skill once. Choose and execute the necessary phases yourself;
+ask only for missing credentials, irreversible authorization or requirements that
+cannot reasonably be inferred. Record reasonable assumptions and continue.
+
+- **Small task:** work inline, load one relevant pack, run a meaningful targeted
+  check. Avoid paying for a planning or discovery agent that repeats your work.
+- **Multi-component task:** record acceptance criteria and dependencies; delegate
+  independent discovery or implementation only when the runtime supports it.
+  Give each worker its goal, owned files, forbidden edits and required evidence.
+  Keep one writer per file; integrate and test results yourself.
+- **High-impact task:** prioritize correctness over price. Require threat review
+  for authentication, payments, migrations and permissions. Use the cheapest
+  configured model meeting the role's competence requirement, escalating when
+  evidence shows it cannot solve the task. Never invent prices or model access.
+- **UI task:** establish a coherent visual direction before code; inspect actual
+  mobile/desktop screenshots, keyboard flow, validation and empty/error/loading
+  states. Capture alone is not visual review. Report unavailable browser checks.
+- **Repair:** pass only current actionable findings plus relevant failure evidence.
+  Keep compact checkpoints of assumptions, decisions, files, checks and blockers.
+  Stop repeated unchanged attempts; diagnose the missing prerequisite instead.
+- **Independent review:** prefer a fresh trusted provider. With only one CLI,
+  use a distinct explicitly configured reviewer model in a fresh invocation when
+  possible. Disclose the shared provider; independence does not certify correctness.
+- **Context economy:** load references at the current phase, retain mandatory
+  verification, skip oversized optional packs explicitly and load smaller ones.
+  Never summarize away acceptance criteria, code semantics or failing evidence.
+
+External GitHub skills are optional reviewed sources, not automatic dependencies.
+Before adopting one, record origin, revision, license and useful capability; check
+for conflicts, permissions and duplicated guidance. Prefer a small attributed
+adapter over copying a whole instruction library. Do not download code simply
+because a task keyword matches a project name.
 
 ## Always-on economy and safety
 

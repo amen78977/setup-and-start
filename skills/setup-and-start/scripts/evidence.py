@@ -7,7 +7,7 @@ may still have filesystem/network access. Use a trusted provider/runtime.
 from __future__ import annotations
 
 import hashlib
-from itertools import islice
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -17,6 +17,8 @@ ALLOWED_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java",
                     ".vue", ".svelte", ".dart", ".kt", ".swift", ".scss", ".sass",
                     ".sql", ".sh", ".ps1", ".c", ".cpp", ".h", ".hpp", ".cs",
                     ".rb", ".ex", ".exs", ".astro", ".mdx", ".xml", ".gradle"}
+TEXT_NAMES = {".gitignore", ".gitattributes", ".dockerignore", "Dockerfile",
+              "Makefile", "LICENSE", "Procfile"}
 DENY_NAMES = {".env", ".env.local", ".env.production", "id_rsa", "id_ed25519"}
 SENSITIVE = re.compile(
     r"""(?ix)
@@ -28,7 +30,6 @@ SENSITIVE = re.compile(
       |(?:\b(?:ghp_|gho_|ghs_|ghu_|github_pat_|sk-)[A-Za-z0-9_\-]{14,})
       |(?:\bAKIA[0-9A-Z]{16}\b)
     """)
-SOURCE_FOLDERS = ("src", "app", "lib", "pages", "tests")
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", ".next", "dist", "build",
              "__pycache__", ".setup-start"}
 SENSITIVE_NAMES = re.compile(r"(?i)(secret|credential|private[_-]?key|\.env|service[_-]?account|token)")
@@ -43,51 +44,83 @@ def _git(project: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 127, "", type(exc).__name__)
 
 
-def _safe_name(relative: str) -> bool:
+def _safe_name(relative: str, allow_cache: bool = False) -> bool:
     p = Path(relative.replace("\\", "/"))
     return (not p.is_absolute() and ".." not in p.parts
             and p.name not in DENY_NAMES
-            and not any(x.lower() in SKIP_DIRS for x in p.parts)
+            and (allow_cache or not any(x.lower() in SKIP_DIRS for x in p.parts))
             and not any(SENSITIVE_NAMES.search(x) for x in p.parts)
             and ".setup-start" not in p.parts and ".git" not in p.parts
-            and p.suffix.lower() in ALLOWED_SUFFIXES)
+            and (p.suffix.lower() in ALLOWED_SUFFIXES or p.name in TEXT_NAMES))
 
 
 def _source_snapshot(project: Path, max_bytes: int,
                      baseline_files: dict[str, str] | None = None) -> dict:
     """Non-Git starter projects can still receive bounded source review."""
-    candidates = list(islice(project.iterdir(), 100))
-    for folder in SOURCE_FOLDERS:
-        source = project / folder
-        if source.is_dir() and not source.is_symlink():
-            # Two levels only: an unbounded rglob may walk private dependencies,
-            # huge generated code, or deeply nested symlinks.
-            for item in islice(source.iterdir(), 100):
-                if item.is_symlink():
-                    continue
-                candidates.append(item)
-                if item.is_dir() and item.name not in SKIP_DIRS:
-                    candidates.extend(islice(item.iterdir(), 50))
+    candidates = []
+    failures = []
+    directory_count = 0
+    def scan_error(error):
+        failures.append("Cannot enumerate project: " + type(error).__name__)
+    # Walk the full source tree with explicit bounds. Crossing a bound is a
+    # blocker, never a silent partial snapshot. Do not follow directory links.
+    for folder, directories, files in os.walk(project, followlinks=False, onerror=scan_error):
+        directory_count += 1
+        if directory_count > 2000:
+            failures.append("Source traversal exceeds directory budget")
+            break
+        directories[:] = sorted(name for name in directories if name not in SKIP_DIRS)
+        for name in directories:
+            if (Path(folder) / name).is_symlink():
+                failures.append("Symlinked directory requires local review")
+        if len(Path(folder).relative_to(project).parts) > 30:
+            failures.append("Source traversal depth exceeded")
+            break
+        candidates.extend(Path(folder) / name for name in sorted(files))
+        if len(candidates) > 2000:
+            failures.append("Source traversal exceeds 2000-file budget")
+            break
+    if failures:
+        return {"available": False, "scan_complete": False, "reason": failures[0],
+                "changed": [], "patch": ""}
     texts = []
     filenames = []
     file_hashes = {}
     used = 0
+    hash_bytes = 0
     for target in candidates:
         if target.is_symlink() or not target.is_file():
-            continue
+            return {"available": False, "scan_complete": False,
+                    "reason": "Symlinked or unreadable source requires local review", "changed": [], "patch": ""}
         if not target.resolve().is_relative_to(project.resolve()):
             continue
         rel = target.relative_to(project).as_posix()
-        if not _safe_name(rel):
-            continue
-        if target.stat().st_size > 10000:
-            return {"available": False, "reason": "Source file too large for bounded review",
+        if SENSITIVE_NAMES.search(rel) or target.name in DENY_NAMES:
+            return {"available": False, "scan_complete": False,
+                    "reason": "Sensitive paths require local review", "changed": [], "patch": ""}
+        if target.stat().st_size > 1_000_000:
+            return {"available": False, "scan_complete": False, "reason": "Source hashing budget exceeded",
                     "changed": [], "patch": ""}
-        body = target.read_text(encoding="utf-8", errors="replace")
-        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        hash_bytes += target.stat().st_size
+        if hash_bytes > 20_000_000:
+            return {"available": False, "scan_complete": False, "reason": "Total source hashing budget exceeded",
+                    "changed": [], "patch": ""}
+        raw = target.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
         file_hashes[rel] = digest
         if baseline_files is not None and baseline_files.get(rel) == digest:
             continue
+        if not _safe_name(rel) or len(raw) > 10000:
+            return {"available": False, "scan_complete": False,
+                    "reason": "Unsupported or oversized source requires local review: " + rel,
+                    "changed": [], "patch": ""}
+        try:
+            body = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            body = "\0"
+        if "\0" in body:
+            return {"available": False, "scan_complete": False,
+                    "reason": "Non-text source requires local review", "changed": [], "patch": ""}
         if SENSITIVE.search(body):
             return {"available": False, "reason": "Potential credential in source snapshot",
                     "changed": [], "patch": ""}
@@ -107,7 +140,8 @@ def _source_snapshot(project: Path, max_bytes: int,
             return {"available": False, "reason": "Source file deletion requires local review: " + names,
                     "changed": deleted, "patch": "", "file_hashes": file_hashes}
     patch = "".join(texts)
-    return {"available": bool(texts), "reason": "Non-Git source snapshot" if texts else "No reviewable source files",
+    return {"available": bool(texts), "scan_complete": True,
+            "reason": "Non-Git source snapshot" if texts else "No reviewable source files",
             "changed": filenames, "patch": patch,
             "file_hashes": file_hashes,
             "sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest()}
@@ -137,6 +171,18 @@ def collect(project: Path, max_bytes: int = 40000, baseline: str | None = None,
     # Track selected paths only: no build caches, .env, binary or git config.
     filenames = []
     excluded_sensitive = []
+    unsupported = []
+
+    def classify(name, tracked=False):
+        # Git-tracked files are project content regardless of folder naming.
+        # Cache exclusions apply only to untracked outputs, never tracked code.
+        if _safe_name(name, allow_cache=tracked):
+            filenames.append(name)
+        elif SENSITIVE_NAMES.search(name) or Path(name).name in DENY_NAMES:
+            excluded_sensitive.append(name)
+        elif tracked or not any(part in SKIP_DIRS for part in Path(name).parts):
+            unsupported.append(name)
+
     records = iter(status.stdout.split("\0"))
     for line in records:
         if not line:
@@ -145,13 +191,12 @@ def collect(project: Path, max_bytes: int = 40000, baseline: str | None = None,
         name = line[3:]
         if "R" in change or "C" in change:
             # -z format provides the former name as the next NUL record.
-            next(records, None)
-        if _safe_name(name):
-            filenames.append(name)
-        elif SENSITIVE_NAMES.search(name) or Path(name).name in DENY_NAMES:
-            excluded_sensitive.append(name)
+            former = next(records, None)
+            if former:
+                classify(former, tracked=True)
+        classify(name, tracked=change != "??")
     if baseline is not None:
-        committed = _git(project, "diff", "--name-only", "-z", "--diff-filter=ACMRD",
+        committed = _git(project, "diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD",
                          baseline, "HEAD")
         if committed.returncode:
             return {"available": False, "reason": "Cannot compare baseline with HEAD",
@@ -159,10 +204,10 @@ def collect(project: Path, max_bytes: int = 40000, baseline: str | None = None,
         for name in committed.stdout.split("\0"):
             if not name:
                 continue
-            if _safe_name(name):
-                filenames.append(name)
-            elif SENSITIVE_NAMES.search(name) or Path(name).name in DENY_NAMES:
-                excluded_sensitive.append(name)
+            classify(name, tracked=True)
+    if unsupported:
+        return {"available": False, "reason": "Unsupported changed paths require local review: " + ", ".join(unsupported[:5]),
+                "changed": sorted(set(filenames + unsupported)), "patch": ""}
     if excluded_sensitive:
         return {"available": False, "reason": "Changes include sensitive filenames; local-only review required",
                 "changed": [], "patch": ""}
@@ -186,19 +231,34 @@ def collect(project: Path, max_bytes: int = 40000, baseline: str | None = None,
                     baseline or "HEAD", "--", *tracked)
         if diff.returncode:
             return {"available": False, "reason": "git diff failed", "changed": filenames, "patch": ""}
+        if re.search(r"(?m)^(?:Binary files |GIT binary patch)", diff.stdout):
+            return {"available": False, "reason": "Binary changes require local review",
+                    "changed": filenames, "patch": ""}
         chunks.append(diff.stdout)
     # git diff HEAD does not include new untracked files; include limited source previews.
     for name in filenames:
         if name in tracked:
             continue
-        target = (project / name).resolve()
+        original = project / name
+        target = original.resolve()
+        if original.is_symlink() or not target.is_relative_to(project.resolve()):
+            return {"available": False, "reason": "Symlinked or escaped source requires local review",
+                    "changed": filenames, "patch": ""}
         if not target.is_relative_to(project.resolve()) or not target.is_file():
             continue
         if target.stat().st_size > 12000:
-            chunks.append("\n[omitted oversized untracked file: " + name + "]")
-            continue
+            return {"available": False, "reason": "Untracked source file exceeds review budget: " + name,
+                    "changed": filenames, "patch": ""}
+        raw = target.read_bytes()
+        try:
+            body = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            body = None
+        if body is None or b"\0" in raw:
+            return {"available": False, "reason": "Non-text source requires local review: " + name,
+                    "changed": filenames, "patch": ""}
         chunks.append("\n--- NEW FILE " + name + " ---\n"
-                      + target.read_text(encoding="utf-8", errors="replace"))
+                      + body)
     patch = "\n".join(chunks)
     # Do not send secret-looking values to a second provider by default.
     has_secrets = bool(SENSITIVE.search(patch))
