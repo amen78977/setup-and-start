@@ -6,12 +6,15 @@ project, lower billing or universally independent review.
 
 Current local evidence:
 
-- 111 tests completed: 109 passed, two Windows-specific checks skipped on Linux.
+- 121 tests completed: 119 passed, two Windows-specific checks skipped on Linux.
 - Real Chromium capture passed for an Arabic RTL page at mobile/desktop sizes.
 - The 19 offline routing fixtures passed; these measure selection, not coding quality.
 - Regression coverage includes tracked source in cache-named directories, skipped
   suites behind alternative launchers, auth assertions, incomplete source evidence,
   source/screenshot identity, failure diagnosis and resume discovery deduplication.
+- Delegation contract coverage includes ownership validation, scoped success,
+  rename/committed changes, failed builders, verification side effects and
+  preventing ownership expansion on resume.
 
 Remaining evidence required before claiming top performance in every category:
 

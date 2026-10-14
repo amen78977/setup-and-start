@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.10+ recommended for the bundled local helper; otherwise follow these instructions manually.
 ---
 
-# Setup & Start — one entry, selective context (v1.1)
+# Setup & Start — one entry, selective context (v1.2)
 
 You are the **orchestrator**, not a huge prompt containing every skill. Work end-to-end after the user gives a task. Never pretend a capability, subagent, CLI, browser, permission or test is available without checking.
 
@@ -32,6 +32,11 @@ cannot reasonably be inferred. Record reasonable assumptions and continue.
   independent discovery or implementation only when the runtime supports it.
   Give each worker its goal, owned files, forbidden edits and required evidence.
   Keep one writer per file; integrate and test results yourself.
+  Include the actual repository checks, known interfaces and unresolved decisions
+  in each brief; never assume a worker can see this chat. Keep commits and landing
+  with the orchestrator. When using the local runner, set `--allow-path` to enforce
+  an explicit post-run file/subtree ownership check. Stop and inspect scope
+  violations; do not silently revert files or expand a worker's ownership.
 - **High-impact task:** prioritize correctness over price. Require threat review
   for authentication, payments, migrations and permissions. Use the cheapest
   configured model meeting the role's competence requirement, escalating when

@@ -4,7 +4,7 @@
 
 Portable, small-context orchestration skill for **Claude Code, Codex, OpenCode** and other Agent Skills-compatible assistants. It routes software tasks to a maximum of three relevant guidance packs at a time, uses Caveman-style token discipline, and specifies an implementation → tests → independent review → repair workflow.
 
-> **Status: v1.1.0 — evidence and adaptive repair release.** The one-entry skill, bounded phase router and opt-in local runner have automated regression, subprocess integration and real-browser coverage. Optional model routing and autonomous CLI workflows remain environment-dependent: this project does **not** raise the model's intrinsic intelligence, guarantee zero bugs, or promise lower cost on every task. Its purpose is to improve coding-agent workflows, **not** compete directly with any app builder.
+> **Status: v1.2.0 — scoped delegation contracts release.** The one-entry skill, bounded phase router and opt-in local runner have automated regression, subprocess integration and real-browser coverage. Optional model routing and autonomous CLI workflows remain environment-dependent: this project does **not** raise the model's intrinsic intelligence, guarantee zero bugs, or promise lower cost on every task. Its purpose is to improve coding-agent workflows, **not** compete directly with any app builder.
 
 ## Quick start — no Python needed for the skill itself
 
@@ -17,6 +17,24 @@ Run a supported agent and ask: **"Use setup-and-start: build a responsive Arabic
 To install globally for all future projects, append `-g` to the command. To update an existing installation, run the same install command again. **Only one skill must be invoked by the user**; all the bundled specialty reference packs are selected on demand.
 
 ## Local zero-dependency helper (Python >= 3.10)
+
+### Scoped implementation delegation
+
+Builder calls now include a self-contained contract with real verification
+commands, file ownership and a structured report requirement. Optional repeatable
+`--allow-path` flags stop the runner if implementation or verification changes
+unowned Git-visible files. Resume must retain the same scope; unexpected edits
+are preserved for inspection. This is a tripwire, not a filesystem sandbox.
+
+```bash
+python skills/setup-and-start/scripts/router.py run "Fix the API helper" --project . \
+  --allow-path src/api.py --allow-path tests/api \
+  --check "python -m unittest discover -s tests" --execute
+```
+
+The [comparison with delegate-skills](docs/DELEGATE_COMPARISON.md) explains its
+broader fleet/CLI/session support and the useful brief and ownership improvements
+added here. No third-party relays are auto-installed or bundled.
 
 ### Evidence required for completion
 

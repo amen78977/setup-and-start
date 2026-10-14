@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.0 — scoped delegation contracts (2026-10-14)
+
+- Generate self-contained builder briefs with actual checks, ownership and a result contract.
+- Add `--allow-path` and post-run scope checks after implementation and verification, including failed builds, committed changes and renames.
+- Stop and preserve unexpected changes before paid review; require unchanged ownership on resume.
+- Document the pinned MIT delegate-skills comparison and explicit adapter/session/background capability gaps.
+
 ## v1.1.0 — evidence and adaptive repair (2026-10-12)
 
 - Include Git-tracked source under cache-named directories in dirty and committed evidence; preserve committed deletions and block unsupported tracked assets.

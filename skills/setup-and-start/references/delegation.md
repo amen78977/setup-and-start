@@ -1,5 +1,26 @@
 # Cost-aware model delegation, explicit inventory and CLI runner
 
+## Bounded implementation contract
+
+Each builder invocation receives a locally generated, self-contained task contract:
+owned paths, actual configured verification commands, safety constraints and the
+required root-cause/files/checks/unresolved-findings report. The orchestrator keeps
+review and landing responsibility. Carry decided interfaces and dependencies
+forward when delegating later tasks; use one brief per independently reviewable task.
+
+`run ... --allow-path src/api.py --allow-path tests/api` optionally assigns file or
+subtree ownership. The runner checks changes after implementation (even failed
+implementation) and verification, and stops with `scope_violation` before paid
+review if anything lies outside the scope. Edits remain available for inspection.
+No paths means the existing unrestricted project workflow. Scope is preserved on
+resume and incompatible with `--allow-dirty`. This is a post-run tripwire, not an
+OS sandbox: Git-ignored files and writes outside the project are not monitored.
+
+Comparison source: [amElnagdy/delegate-skills](https://github.com/amElnagdy/delegate-skills),
+reviewed at `3aa72d681a79e2a9d09bd9a316353003ae1cb4a7` (MIT). Its fleet, adapter and
+session/background features exceed this runner's current implementation. We do
+not bundle its code or claim support for all its implementers.
+
 Prefer native subagents when the runtime exposes them; a markdown skill alone cannot create provider accounts, change models or grant permissions.
 
 - Classify subtasks by complexity, blast radius, expected token count and testability. Delegate cheap discovery, summary and simple tests only if spawning an agent is cheaper than doing them inline.

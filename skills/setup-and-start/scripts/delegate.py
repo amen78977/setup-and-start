@@ -8,8 +8,76 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import PurePosixPath
 
 import model_policy
+
+
+def validate_scope(paths: list[str]) -> list[str]:
+    """Explicit repository-relative files/subtrees; no shell globs or escapes."""
+    if len(paths) > 100:
+        raise ValueError("Limit delegation scope to 100 paths")
+    normalized = []
+    for raw in paths:
+        if not isinstance(raw, str) or not 1 <= len(raw) <= 500:
+            raise ValueError("Invalid delegation scope path")
+        name = raw.replace("\\", "/")
+        target = PurePosixPath(name)
+        if (target.is_absolute() or re.match(r"^[A-Za-z]:", name)
+                or any(part in ("..", ".git", ".setup-start") for part in target.parts)
+                or re.search(r"[\x00-\x1f*?\[\]]", name) or str(target) == "."):
+            raise ValueError("Scope must name repository-relative files/subtrees")
+        normalized.append(target.as_posix())
+    return sorted(set(normalized))
+
+
+def task_contract(scope: list[str], checks: list[list[str]]) -> dict:
+    """Self-contained brief metadata, generated locally without a model call."""
+    return {"owned_paths": scope, "verification_commands": checks,
+            "constraints": ["One task per brief; carry established decisions forward.",
+                            "Inspect existing code; verify assumptions before editing.",
+                            "Leave edits for the orchestrator: do not commit, push or publish.",
+                            "Keep unrelated files unchanged; report a scope blocker instead of expanding ownership."],
+            "report": ["root cause and implementation", "files changed",
+                       "actual check outcomes and counts", "unresolved findings"]}
+
+
+def check_scope(project, scope: list[str], baseline=None, source_baseline=None) -> dict:
+    """Post-run Git-visible tripwire, not a sandbox or filesystem monitor."""
+    import evidence
+    if not scope:
+        return {"pass": True, "enforced": False, "unexpected": []}
+    inside = evidence._git(project, "rev-parse", "--is-inside-work-tree")
+    if inside.stdout.strip() == "true" and inside.returncode == 0:
+        status = evidence._git(project, "status", "--porcelain", "-z", "--untracked-files=all")
+        if status.returncode:
+            return {"pass": False, "enforced": True, "reason": "Cannot inspect Git scope", "unexpected": []}
+        names = []
+        records = iter(status.stdout.split("\0"))
+        for record in records:
+            if not record:
+                continue
+            change, name = record[:2], record[3:]
+            if change == "??" and name.startswith(".setup-start/"):
+                continue
+            names.append(name)
+            if "R" in change or "C" in change:
+                former = next(records, None)
+                if former:
+                    names.append(former)
+        if baseline:
+            committed = evidence._git(project, "diff", "--no-renames", "--name-only", "-z", baseline, "HEAD")
+            if committed.returncode:
+                return {"pass": False, "enforced": True, "reason": "Cannot compare committed scope", "unexpected": []}
+            names.extend(filter(None, committed.stdout.split("\0")))
+    else:
+        snapshot = evidence.collect(project, source_baseline=source_baseline)
+        if not snapshot.get("scan_complete"):
+            return {"pass": False, "enforced": True, "reason": "Incomplete non-Git scope inspection", "unexpected": []}
+        names = snapshot["changed"]
+    unexpected = sorted({name for name in names if not any(
+        name == owned or name.startswith(owned + "/") for owned in scope)})
+    return {"pass": not unexpected, "enforced": True, "unexpected": unexpected}
 
 
 def discovery_option(models: list[dict], task: str, build_choice: dict | None,
